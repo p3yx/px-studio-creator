@@ -212,12 +212,25 @@ async function processMixAudioJob(job: any) {
   const { runProcess } = await import("./ffmpeg");
   let args: string[];
   if (mode === "replace" || mode === "music") {
-    args = ["-y", "-i", project.sourcePath, "-stream_loop", "-1", "-i", payload.audioPath, "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", outPath];
-    let r = await runProcess(ff, args);
-    if (r.code !== 0) {
-      args = ["-y", "-i", project.sourcePath, "-stream_loop", "-1", "-i", payload.audioPath, "-map", "0:v:0", "-map", "1:a:0", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", outPath];
-      r = await runProcess(ff, args);
-      if (r.code !== 0) throw new Error(`Gagal merender video: ${(r.stderr || r.stdout || "").slice(-500)}`);
+    const brand = await getBrandKit().catch(() => null);
+    const loudOn = brand ? brand.loudnessNormalize !== false : true;
+    const loud = loudOn ? loudnormFilter(brand || { loudnessTargetI: -14, loudnessTargetTP: -1.5, loudnessTargetLRA: 11 } as any) : null;
+    if (loud) {
+      args = ["-y", "-i", project.sourcePath, "-stream_loop", "-1", "-i", payload.audioPath, "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-af", loud, "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", "-shortest", "-movflags", "+faststart", outPath];
+      let r = await runProcess(ff, args);
+      if (r.code !== 0) {
+        args = ["-y", "-i", project.sourcePath, "-stream_loop", "-1", "-i", payload.audioPath, "-map", "0:v:0", "-map", "1:a:0", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-af", loud, "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", "-shortest", "-movflags", "+faststart", outPath];
+        r = await runProcess(ff, args);
+        if (r.code !== 0) throw new Error(`Gagal merender video: ${(r.stderr || r.stdout || "").slice(-500)}`);
+      }
+    } else {
+      args = ["-y", "-i", project.sourcePath, "-stream_loop", "-1", "-i", payload.audioPath, "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", outPath];
+      let r = await runProcess(ff, args);
+      if (r.code !== 0) {
+        args = ["-y", "-i", project.sourcePath, "-stream_loop", "-1", "-i", payload.audioPath, "-map", "0:v:0", "-map", "1:a:0", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", outPath];
+        r = await runProcess(ff, args);
+        if (r.code !== 0) throw new Error(`Gagal merender video: ${(r.stderr || r.stdout || "").slice(-500)}`);
+      }
     }
   } else {
     const brand = await getBrandKit().catch(() => null);

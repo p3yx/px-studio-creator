@@ -179,17 +179,16 @@ export async function generateThumbnail(input: string, output: string, atSeconds
   return output;
 }
 
-export async function convertResizeVideo(opts: { input: string; output: string; aspect: "16:9"|"9:16"|"1:1"|"original"; fit?: "pad"|"crop"; quality?: "high"|"medium"|"fast"; keepAudio?: boolean; loudnessNormalize?: boolean; loudnessFilter?: string }) {
+export async function convertResizeVideo(opts: { input: string; output: string; aspect: "16:9"|"9:16"|"1:1"|"original"; fit?: "pad"|"crop"; quality?: "high"|"medium"|"fast"; keepAudio?: boolean; loudnessNormalize?: boolean; loudnessFilter?: string; watermarkPath?: string | null; watermarkPosition?: "top-left"|"top-right"|"bottom-left"|"bottom-right"|"center"; watermarkOpacity?: number; watermarkScale?: number; watermarkMargin?: number }) {
   await fs.mkdir(path.dirname(opts.output), { recursive: true });
   const aspect = opts.aspect || "original";
   const fit = opts.fit || (aspect === "16:9" || aspect === "original" ? "pad" : "crop");
   const crf = opts.quality === "high" ? "20" : opts.quality === "fast" ? "28" : "23";
   const preset = opts.quality === "fast" ? "veryfast" : "medium";
-  let loudOn = opts.loudnessNormalize;
-  let loudFilter = opts.loudnessFilter;
-  if (loudOn == null || !loudFilter) {
-    try { const b = await (await import("./brand")).getBrandKit(); loudOn = loudOn ?? b.loudnessNormalize; loudFilter = loudFilter || (await import("./brand")).loudnormFilter(b); } catch {}
-  }
+  let brand: any = null;
+  try { brand = await (await import("./brand")).getBrandKit(); } catch {}
+  let loudOn = opts.loudnessNormalize ?? brand?.loudnessNormalize;
+  let loudFilter = opts.loudnessFilter || (brand ? (await import("./brand")).loudnormFilter(brand) : undefined);
   loudOn = loudOn !== false;
   loudFilter = loudFilter || "alimiter=limit=0.95,loudnorm=I=-14:TP=-1.5:LRA=11";
   let vf = "";
@@ -206,9 +205,37 @@ export async function convertResizeVideo(opts: { input: string; output: string; 
       ? "crop=ih*16/9:ih:(iw-ih*16/9)/2:0,scale=1920:1080:flags=lanczos,setsar=1"
       : "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1";
   } else {
-    // original: keep aspect, normalize size/encoding for compatibility
     vf = "scale='min(1920,iw)':-2:force_original_aspect_ratio=decrease,setsar=1";
   }
+  const wmPathRaw = opts.watermarkPath !== undefined ? opts.watermarkPath : (brand?.watermarkEnabled ? brand.watermarkPath : null);
+  const wmPath = wmPathRaw ? await fs.stat(wmPathRaw).then(()=>wmPathRaw).catch(()=>null) : null;
+  const wmPos = opts.watermarkPosition ?? brand?.watermarkPosition ?? "bottom-right";
+  const wmOpacity = opts.watermarkOpacity ?? brand?.watermarkOpacity ?? 0.8;
+  const wmScale = opts.watermarkScale ?? brand?.watermarkScale ?? 0.18;
+  const wmMargin = opts.watermarkMargin ?? brand?.watermarkMargin ?? 24;
+
+  if (wmPath) {
+    const margin = Math.max(0, Math.round(wmMargin));
+    const scale = Math.max(0.05, Math.min(0.6, Number(wmScale) || 0.18));
+    const opacity = Math.max(0, Math.min(1, Number(wmOpacity) || 0.8));
+    const xy = wmPos === "top-left" ? `x=${margin}:y=${margin}`
+      : wmPos === "top-right" ? `x=W-w-${margin}:y=${margin}`
+      : wmPos === "bottom-left" ? `x=${margin}:y=H-h-${margin}`
+      : wmPos === "center" ? `x=(W-w)/2:y=(H-h)/2`
+      : `x=W-w-${margin}:y=H-h-${margin}`;
+    const fc = `[0:v]${vf}[v1];[1:v]format=rgba,colorchannelmixer=aa=${opacity.toFixed(3)},scale=iw*${scale.toFixed(4)}:-1[wm];[v1][wm]overlay=${xy}[vout]`;
+    const args = [
+      "-y", "-i", opts.input, "-i", wmPath,
+      "-filter_complex", fc, "-map", "[vout]", "-map", "0:a?",
+      "-c:v", "libx264", "-preset", preset, "-crf", crf, "-pix_fmt", "yuv420p",
+      ...(opts.keepAudio === false ? ["-an"] : (loudOn ? ["-af", loudFilter, "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2"] : ["-c:a", "aac", "-b:a", "160k"])),
+      "-movflags", "+faststart", opts.output,
+    ];
+    const { code } = await runProcess(FFMPEG, args);
+    if (code === 0) return opts.output;
+    // fallback without watermark
+  }
+
   const args = [
     "-y", "-i", opts.input,
     "-vf", vf,

@@ -7,7 +7,10 @@ export default function SettingsClient() {
   const [data, setData] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string|null>(null);
-  useEffect(()=>{ fetch('/api/settings').then(r=>r.json()).then(setData).catch(()=>{}); },[]);
+  const [wmUploading, setWmUploading] = useState(false);
+  const [profileName, setProfileName] = useState("");
+  const [selectedProfile, setSelectedProfile] = useState("");
+  useEffect(()=>{ fetch('/api/settings').then(r=>r.json()).then(d=>{ setData(d); }).catch(()=>{}); },[]);
   async function save() {
     setSaving(true); setMsg(null);
     const res = await fetch('/api/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data||{}) });
@@ -17,6 +20,45 @@ export default function SettingsClient() {
   }
   const f = (k:string, v:any) => setData((d:any)=>({...d,[k]:v}));
   const fb = (k:string, v:any) => setData((d:any)=>({ ...d, brandKit: { ...(d?.brandKit||{}), [k]: v } }));
+
+  async function uploadWatermark(file: File) {
+    setWmUploading(true); setMsg(null);
+    try {
+      const fd = new FormData(); fd.append('file', file);
+      const res = await fetch('/api/settings/watermark', { method: 'POST', body: fd });
+      const j = await res.json().catch(()=>({}));
+      if (!res.ok) throw new Error(j.error || 'Gagal upload watermark');
+      setData((d:any)=>({ ...d, brandKit: j.brandKit || { ...(d?.brandKit||{}), watermarkPath: j.path, watermarkEnabled: true } }));
+      setMsg('Watermark berhasil diupload dan diaktifkan.');
+    } catch (e:any) { setMsg(e?.message || 'Gagal upload watermark'); }
+    finally { setWmUploading(false); }
+  }
+
+  function saveProfile() {
+    const name = profileName.trim();
+    if (!name) { setMsg('Nama profil wajib diisi.'); return; }
+    const profiles = Array.isArray(data?.brandProfiles) ? [...data.brandProfiles] : [];
+    const idx = profiles.findIndex((p:any)=>p?.name === name);
+    const entry = { name, kit: data?.brandKit || {} };
+    if (idx >= 0) profiles[idx] = entry; else profiles.push(entry);
+    setData((d:any)=>({ ...d, brandProfiles: profiles }));
+    setSelectedProfile(name);
+    setMsg(`Profil "${name}" disimpan (klik Simpan Pengaturan untuk persist).`);
+  }
+  function applyProfile(name: string) {
+    const profiles = Array.isArray(data?.brandProfiles) ? data.brandProfiles : [];
+    const p = profiles.find((x:any)=>x?.name === name);
+    if (!p) return;
+    setData((d:any)=>({ ...d, brandKit: { ...(d?.brandKit||{}), ...(p.kit||{}) } }));
+    setSelectedProfile(name);
+    setMsg(`Profil "${name}" diterapkan (klik Simpan Pengaturan untuk persist).`);
+  }
+  function deleteProfile(name: string) {
+    const profiles = (Array.isArray(data?.brandProfiles) ? data.brandProfiles : []).filter((p:any)=>p?.name !== name);
+    setData((d:any)=>({ ...d, brandProfiles: profiles }));
+    if (selectedProfile === name) setSelectedProfile('');
+    setMsg(`Profil "${name}" dihapus (klik Simpan Pengaturan untuk persist).`);
+  }
 
   return (
     <div className="space-y-6 lg:space-y-8">
@@ -62,8 +104,15 @@ export default function SettingsClient() {
                   </Select>
                 </div>
                 <div className="space-y-2 sm:col-span-2">
-                  <label className="text-sm font-medium text-zinc-300">Path Watermark/Logo (file di server/storage)</label>
-                  <Input value={data.brandKit?.watermarkPath||""} onChange={e=>fb('watermarkPath', e.target.value || null)} placeholder="C:\\path\\to\\logo.png atau path storage absolut" />
+                  <label className="text-sm font-medium text-zinc-300">Watermark/Logo (upload atau path)</label>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <Input value={data.brandKit?.watermarkPath||""} onChange={e=>fb('watermarkPath', e.target.value || null)} placeholder="Path file di server/storage (atau upload di samping)" />
+                    <label className="inline-flex items-center justify-center px-3 py-2 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-sm cursor-pointer whitespace-nowrap">
+                      <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="hidden" onChange={e=>{ const file=e.target.files?.[0]; if(file) uploadWatermark(file); e.currentTarget.value=''; }} />
+                      {wmUploading ? 'Mengupload...' : 'Upload Logo'}
+                    </label>
+                  </div>
+                  <div className="text-xs text-zinc-500">Upload akan menyimpan ke storage server dan mengaktifkan watermark. Anda juga bisa isi path manual.</div>
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-zinc-300">Posisi Watermark</label>
@@ -87,6 +136,23 @@ export default function SettingsClient() {
                   <label className="text-sm font-medium text-zinc-300">Margin Watermark (px)</label>
                   <Input value={String(data.brandKit?.watermarkMargin ?? 24)} onChange={e=>fb('watermarkMargin', e.target.value)} />
                 </div>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-3">
+                <div className="text-sm font-medium text-zinc-200">Profil Brand Kit (Preset Bernama)</div>
+                <div className="grid sm:grid-cols-[1fr_auto_auto] gap-2">
+                  <Input value={profileName} onChange={e=>setProfileName(e.target.value)} placeholder="Nama profil (mis. Kanal Utama)" />
+                  <Button type="button" variant="secondary" onClick={saveProfile}>Simpan Profil</Button>
+                  <Button type="button" variant="secondary" onClick={()=>{ if(selectedProfile) deleteProfile(selectedProfile); }}>Hapus</Button>
+                </div>
+                <div className="grid sm:grid-cols-[1fr_auto] gap-2">
+                  <Select value={selectedProfile} onChange={e=>{ setSelectedProfile(e.target.value); if(e.target.value) applyProfile(e.target.value); }}>
+                    <option value="">Pilih profil untuk diterapkan...</option>
+                    {(Array.isArray(data.brandProfiles)?data.brandProfiles:[]).map((p:any)=>(<option key={p.name} value={p.name}>{p.name}</option>))}
+                  </Select>
+                  <Button type="button" variant="secondary" onClick={()=>{ if(selectedProfile) applyProfile(selectedProfile); }}>Terapkan</Button>
+                </div>
+                <div className="text-xs text-zinc-500">Simpan profil dari Brand Kit saat ini, lalu klik “Simpan Pengaturan” untuk menyimpan daftar profil ke server.</div>
               </div>
 
               <div className="grid sm:grid-cols-2 gap-4">
