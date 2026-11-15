@@ -50,6 +50,7 @@ export default function AddAudioClient() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
+  const [addJob, setAddJob] = useState<{ projectId?: string; progress?: number; stage?: string; status?: string } | null>(null);
 
   // Extract tab state (simple)
   const [extractFile, setExtractFile] = useState<File | null>(null);
@@ -71,6 +72,7 @@ export default function AddAudioClient() {
   const [syncBusy, setSyncBusy] = useState(false);
   const [applyBusy, setApplyBusy] = useState(false);
   const [applyResult, setApplyResult] = useState<any>(null);
+  const [applyJob, setApplyJob] = useState<{ projectId?: string; progress?: number; stage?: string; status?: string } | null>(null);
   const [playhead, setPlayhead] = useState(0);
   const [playing, setPlaying] = useState(false);
   const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
@@ -101,7 +103,7 @@ export default function AddAudioClient() {
     }
   }, [beatAudioFile, beatAudioAssetId, library]);
 
-  useEffect(() => { setAnalysisDirty(true); setAnalysis(null); setMarkers([]); setSyncPlan(null); setApplyResult(null); }, [beatAudioFile, beatAudioAssetId]);
+  useEffect(() => { setAnalysisDirty(true); setAnalysis(null); setMarkers([]); setSyncPlan(null); setApplyResult(null); setApplyJob(null); }, [beatAudioFile, beatAudioAssetId]);
 
   function pushHistory(next: Marker[]) {
     setMarkersHistory(h => [...h.slice(-30), markers]);
@@ -119,7 +121,7 @@ export default function AddAudioClient() {
 
   async function analyzeBeat() {
     if (!beatAudioFile && !beatAudioAssetId) { setError("Pilih audio/musik untuk dianalisis."); return; }
-    setAnalyzing(true); setError(null); setSyncPlan(null); setApplyResult(null);
+    setAnalyzing(true); setError(null); setSyncPlan(null); setApplyResult(null); setApplyJob(null);
     try {
       const fd = new FormData();
       if (beatAudioFile) fd.append("audio", beatAudioFile);
@@ -200,7 +202,7 @@ export default function AddAudioClient() {
     if (!plan) return;
     if (!video) { setError("Pilih video terlebih dahulu untuk menerapkan Auto Beat."); return; }
     if (!beatAudioFile && !beatAudioAssetId) { setError("Pilih audio/musik untuk Auto Beat."); return; }
-    setApplyBusy(true); setError(null); setApplyResult(null);
+    setApplyBusy(true); setError(null); setApplyResult(null); setApplyJob(null);
     try {
       const fd = new FormData();
       fd.append("video", video);
@@ -214,6 +216,38 @@ export default function AddAudioClient() {
       const res = await fetch("/api/tools/beat-sync", { method: "POST", body: fd });
       const j = await res.json().catch(()=>({}));
       if (!res.ok) throw new Error(j.error || "Gagal menerapkan Auto Beat");
+
+      if (j.async && j.projectId) {
+        setApplyJob({ projectId: j.projectId, progress: 0, stage: "Queued", status: "WAITING" });
+        const projectId = j.projectId as string;
+        let done = false;
+        for (let i = 0; i < 900; i++) {
+          await new Promise(r => setTimeout(r, 2000));
+          const pr = await fetch(`/api/projects/${projectId}`, { cache: "no-store" });
+          const pj = await pr.json().catch(()=>({}));
+          if (!pr.ok) throw new Error(pj.error || "Gagal memuat status render");
+          const pproj = pj.project || {};
+          const job = (pproj.jobs && pproj.jobs[0]) || null;
+          const status = String(job?.status || pproj.status || "WAITING");
+          const progress = Number(job?.progress ?? 0) || 0;
+          const stage = String(job?.stage || status);
+          setApplyJob({ projectId, progress, stage, status });
+          if (status === "COMPLETED") {
+            const fileUrl = pproj.outputUrl || (pproj.clips && pproj.clips[0] && pproj.clips[0].downloadUrl) || null;
+            if (!fileUrl) throw new Error("Render selesai tetapi file hasil tidak ditemukan");
+            const note = (pproj.clips && pproj.clips[0] && (pproj.clips[0].description || pproj.clips[0].reason)) || "Auto Beat selesai.";
+            setApplyResult({ fileUrl, note, duration: pproj.outputDuration || null, fileSize: pproj.outputSize || null });
+            done = true;
+            break;
+          }
+          if (status === "FAILED") {
+            throw new Error(job?.error || pproj.errorMessage || "Render Auto Beat gagal");
+          }
+        }
+        if (!done) throw new Error("Render Auto Beat masih berjalan terlalu lama. Cek status di Projects.");
+        return;
+      }
+
       setApplyResult(j);
     } catch (e:any) { setError(e.message || "Gagal menerapkan Auto Beat"); }
     finally { setApplyBusy(false); }
@@ -282,7 +316,7 @@ export default function AddAudioClient() {
   async function submitAddAudio() {
     if (!video) { setError("Pilih file video terlebih dahulu."); return; }
     if (!audio && !audioAssetId) { setError("Pilih/unggah file audio atau pilih dari Audio Library."); return; }
-    setBusy(true); setError(null); setResult(null);
+    setBusy(true); setError(null); setResult(null); setAddJob(null);
     try {
       const fd = new FormData();
       fd.append("video", video);
@@ -295,6 +329,34 @@ export default function AddAudioClient() {
       const res = await fetch("/api/tools/mix-audio", { method: "POST", body: fd });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || "Gagal memproses video");
+
+      if (j.async && j.projectId) {
+        setAddJob({ projectId: j.projectId, progress: 0, stage: "Queued", status: "WAITING" });
+        const projectId = j.projectId as string;
+        let done = false;
+        for (let i = 0; i < 900; i++) {
+          await new Promise(r => setTimeout(r, 2000));
+          const pr = await fetch(`/api/projects/${projectId}`, { cache: "no-store" });
+          const pj = await pr.json().catch(()=>({}));
+          if (!pr.ok) throw new Error(pj.error || "Gagal memuat status render");
+          const pproj = pj.project || {};
+          const job = (pproj.jobs && pproj.jobs[0]) || null;
+          const status = String(job?.status || pproj.status || "WAITING");
+          const progress = Number(job?.progress ?? 0) || 0;
+          const stage = String(job?.stage || status);
+          setAddJob({ projectId, progress, stage, status });
+          if (status === "COMPLETED") {
+            const fileUrl = pproj.outputUrl || (pproj.clips && pproj.clips[0] && pproj.clips[0].downloadUrl) || null;
+            if (!fileUrl) throw new Error("Render selesai tetapi file hasil tidak ditemukan");
+            setResult({ fileUrl, duration: pproj.outputDuration || null, fileSize: pproj.outputSize || null, name });
+            done = true; break;
+          }
+          if (status === "FAILED") throw new Error(job?.error || pproj.errorMessage || "Gagal memproses video");
+        }
+        if (!done) throw new Error("Render masih berjalan terlalu lama. Cek status di Projects.");
+        return;
+      }
+
       setResult(j);
     } catch (e: any) { setError(e.message || "Gagal memproses video"); }
     finally { setBusy(false); }
@@ -340,9 +402,10 @@ export default function AddAudioClient() {
           <Card className="p-5 sm:p-6 space-y-5">
             {busy && (
               <div className="rounded-xl border border-violet-500/20 bg-violet-500/10 px-4 py-3 space-y-2">
-                <div className="flex items-center gap-2 text-sm text-violet-200"><Loader2 size={16} className="animate-spin"/> Memproses & merender video dengan FFmpeg...</div>
-                <div className="h-2 rounded-full bg-white/10 overflow-hidden"><div className="h-full w-1/2 bg-gradient-to-r from-violet-500 to-cyan-400 animate-pulse rounded-full" /></div>
-                <div className="text-xs text-zinc-400">Proses berjalan di server. Mohon tunggu, jangan tutup halaman ini sampai selesai.</div>
+                <div className="flex items-center gap-2 text-sm text-violet-200"><Loader2 size={16} className="animate-spin"/> {addJob ? 'Render diproses di background (worker)...' : 'Menyiapkan render...'}</div>
+                <div className="h-2 rounded-full bg-white/10 overflow-hidden"><div className="h-full bg-gradient-to-r from-violet-500 to-cyan-400 transition-all duration-500 rounded-full" style={{width:`${Math.max(5, Math.min(100, addJob?.progress || 10))}%`}} /></div>
+                <div className="text-xs text-zinc-300 flex flex-wrap gap-x-3 gap-y-1"><span>{addJob?.stage || 'Queued'}</span><span>{Math.max(0, Math.min(100, addJob?.progress || 0))}%</span>{addJob?.projectId && <span className="text-zinc-500">Project: {String(addJob.projectId).slice(0,8)}…</span>}</div>
+                <div className="text-xs text-zinc-400">Proses berjalan di server (background). Hasil akan muncul otomatis saat selesai.</div>
               </div>
             )}
             <div className="space-y-2">
@@ -384,7 +447,7 @@ export default function AddAudioClient() {
             <Button className="w-full" onClick={submitAddAudio} disabled={busy || !video || (!audio && !audioAssetId)}>
               {busy ? <Loader2 size={16} className="animate-spin"/> : <Music size={16}/>} {busy ? "Memproses & Merender..." : "Tambahkan Suara & Render Video"}
             </Button>
-            <div className="text-xs text-zinc-500">Durasi output mengikuti video (audio menyesuaikan/loop jika lebih pendek, dipotong jika lebih panjang). Proses menggunakan FFmpeg di server. Gunakan tab <b>Auto Beat</b> untuk sinkronisasi musik berbasis beat.</div>
+            <div className="text-xs text-zinc-500">Durasi output mengikuti video (audio menyesuaikan/loop jika lebih pendek, dipotong jika lebih panjang). Render berjalan di background (worker) menggunakan FFmpeg. Gunakan tab <b>Auto Beat</b> untuk sinkronisasi musik berbasis beat.</div>
           </Card>
           <Card className="p-5 sm:p-6 space-y-4">
             <div className="font-medium">Hasil</div>
@@ -575,14 +638,21 @@ export default function AddAudioClient() {
               <Card className="p-5 sm:p-6 space-y-3">
                 <div className="font-medium">Sync Plan / Hasil</div>
                 {syncPlan && <div className="text-sm text-zinc-300 bg-white/[0.03] border border-white/10 rounded-xl p-3 space-y-1"><div>Preset: <span className="text-zinc-100">{syncPlan.preset}</span> | Mode: {syncPlan.syncMode} | Intensity: {syncPlan.intensity}</div><div>Cut points: {syncPlan.cuts?.length || 0} | Durasi musik: {Number(syncPlan.duration||0).toFixed(2)}s | Offset: {syncPlan.offset}s</div></div>}
-                {applyBusy && <div className="flex items-center gap-2 text-sm text-violet-200"><Loader2 size={16} className="animate-spin"/> Merender Auto Beat...</div>}
+                {applyBusy && (
+                  <div className="rounded-xl border border-violet-500/20 bg-violet-500/10 px-4 py-3 space-y-2">
+                    <div className="flex items-center gap-2 text-sm text-violet-200"><Loader2 size={16} className="animate-spin"/> {applyJob ? 'Render Auto Beat diproses di background (worker)...' : 'Mengirim & menyiapkan render Auto Beat...'}</div>
+                    <div className="h-2 rounded-full bg-white/10 overflow-hidden"><div className="h-full bg-gradient-to-r from-violet-500 to-cyan-400 transition-all duration-500 rounded-full" style={{width:`${Math.max(5, Math.min(100, applyJob?.progress || 5))}%`}}/></div>
+                    <div className="text-xs text-zinc-300 flex flex-wrap gap-x-3 gap-y-1"><span>{applyJob?.stage || 'Queued'}</span><span>{Math.max(0, Math.min(100, applyJob?.progress || 0))}%</span>{applyJob?.projectId && <span className="text-zinc-500">Project: {String(applyJob.projectId).slice(0,8)}…</span>}</div>
+                    <div className="text-xs text-zinc-500">Proses berjalan di server (background). Anda bisa menunggu di sini; hasil akan muncul otomatis saat selesai.</div>
+                  </div>
+                )}
                 {applyResult?.fileUrl ? (
                   <div className="space-y-3">
                     <div className="aspect-video bg-black/50 rounded-xl overflow-hidden border border-white/10"><video key={applyResult.fileUrl} src={applyResult.fileUrl} controls className="w-full h-full object-contain" /></div>
                     <a href={applyResult.fileUrl} download className="inline-flex w-full"><Button variant="secondary" className="w-full"><Download size={16}/> Download Hasil Auto Beat</Button></a>
                     {applyResult.note && <div className="text-xs text-zinc-400">{applyResult.note}</div>}
                   </div>
-                ) : !syncPlan && <div className="text-sm text-zinc-500">Belum ada plan. Jalankan Analyze Beat lalu Auto Sync / Apply.</div>}
+                ) : (!applyBusy && !syncPlan && <div className="text-sm text-zinc-500">Belum ada plan. Jalankan Analyze Beat lalu Auto Sync / Apply.</div>)}
               </Card>
             </div>
           </div>

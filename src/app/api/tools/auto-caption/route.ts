@@ -8,6 +8,7 @@ import { STORAGE_ROOT } from "@/lib/storage";
 import { runProcess, burnSubtitlesIntoVideo, probeVideo } from "@/lib/ffmpeg";
 import { transcribeWithTask } from "@/lib/ai-providers";
 import { transcriptToSrt } from "@/lib/captions";
+import { getBrandKit, subtitleForceStyle, loudnormFilter } from "@/lib/brand";
 
 export const runtime = "nodejs";
 
@@ -159,7 +160,21 @@ export async function POST(req: NextRequest) {
     let burnedIn = false;
     let burnNote: string | null = null;
     try {
-      await burnSubtitlesIntoVideo({ input: inputPath, subtitlePath: srtPath, output: outVideoPath, quality: "medium" });
+      const brand = await getBrandKit();
+      await burnSubtitlesIntoVideo({
+        input: inputPath,
+        subtitlePath: srtPath,
+        output: outVideoPath,
+        quality: "medium",
+        subtitleStyle: subtitleForceStyle(brand),
+        watermarkPath: brand.watermarkEnabled ? brand.watermarkPath : null,
+        watermarkPosition: brand.watermarkPosition,
+        watermarkOpacity: brand.watermarkOpacity,
+        watermarkScale: brand.watermarkScale,
+        watermarkMargin: brand.watermarkMargin,
+        loudnessNormalize: brand.loudnessNormalize,
+        loudnessFilter: loudnormFilter(brand),
+      });
       burnedIn = true;
       burnNote = "Caption berhasil dimasukkan (burn-in) ke video.";
     } catch (e: any) {

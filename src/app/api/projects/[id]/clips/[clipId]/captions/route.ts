@@ -9,6 +9,7 @@ import { runProcess, burnSubtitlesIntoVideo, probeVideo } from "@/lib/ffmpeg";
 import { clipsDir, tempDir, ensureProjectDirs, STORAGE_ROOT } from "@/lib/storage";
 import { transcribeWithTask } from "@/lib/ai-providers";
 import { transcriptToSrt } from "@/lib/captions";
+import { getBrandKit, subtitleForceStyle, loudnormFilter } from "@/lib/brand";
 
 function toDownloadUrl(absPath: string | null) {
   if (!absPath) return null;
@@ -179,7 +180,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         const base = burnTarget.slice(0, burnTarget.length - ext.length).replace(/-captioned$/i, "");
         const finalOut = `${base}-captioned${ext}`;
         const tmpOut = `${base}-captioned.tmp-${Date.now()}${ext}`;
-        await burnSubtitlesIntoVideo({ input: burnTarget, subtitlePath: srtPath, output: tmpOut, quality: "medium" });
+        const brand = await getBrandKit();
+        await burnSubtitlesIntoVideo({
+          input: burnTarget,
+          subtitlePath: srtPath,
+          output: tmpOut,
+          quality: "medium",
+          subtitleStyle: subtitleForceStyle(brand),
+          watermarkPath: brand.watermarkEnabled ? brand.watermarkPath : null,
+          watermarkPosition: brand.watermarkPosition,
+          watermarkOpacity: brand.watermarkOpacity,
+          watermarkScale: brand.watermarkScale,
+          watermarkMargin: brand.watermarkMargin,
+          loudnessNormalize: brand.loudnessNormalize,
+          loudnessFilter: loudnormFilter(brand),
+        });
         // Replace captioned output atomically-ish
         await fs.rename(tmpOut, finalOut).catch(async () => { await fs.copyFile(tmpOut, finalOut); await fs.unlink(tmpOut).catch(()=>{}); });
         // Clean up old captioned variants? keep finalOut as current

@@ -1,6 +1,7 @@
 ﻿import path from "path";
 import fs from "fs/promises";
 import { runProcess, probeVideo } from "./ffmpeg";
+import { getBrandKit, loudnormFilter } from "./brand";
 
 export type MontagePreset = "cinematic" | "amv" | "hype" | "emotional" | "clean" | "story";
 export type TransitionType = "cut" | "crossfade" | "fadeblack" | "fadewhite" | "zoom" | "blur" | "slide";
@@ -296,6 +297,8 @@ export async function renderMontage(opts: {
     curV = outV; curA = outA; curDur = curDur + durs[i] - (td > 0.01 && tr !== "cut" ? td : 0);
   }
 
+  const brand = await getBrandKit().catch(() => null);
+  const loud = brand && brand.loudnessNormalize === false ? "alimiter=limit=0.95" : loudnormFilter(brand || { loudnessTargetI: -14, loudnessTargetTP: -1.5, loudnessTargetLRA: 11 } as any);
   const music = plan.music && plan.music.filePath && (plan.music.mode === "music" || plan.music.mode === "mix" || plan.music.mode === "mute-original") ? plan.music : null;
   if (music) {
     const musicIdx = segs.length * 2;
@@ -304,19 +307,19 @@ export async function renderMontage(opts: {
     const ovol = music.mode === "music" ? 0 : (music.originalVolume ?? 0.8);
     if (music.mode === "music" || ovol === 0) {
       filter += `[${musicIdx}:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=${mvol}[m1];`;
-      filter += `[m1]atrim=0:${curDur.toFixed(3)},asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.5,afade=t=out:st=${Math.max(0, curDur - 0.8).toFixed(3)}:d=0.8[aout];`;
+      filter += `[m1]atrim=0:${curDur.toFixed(3)},asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.5,afade=t=out:st=${Math.max(0, curDur - 0.8).toFixed(3)}:d=0.8,${loud}[aout];`;
       filter += `[voutpre]null[vout];`;
     } else {
       filter += `[${musicIdx}:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=${mvol}[m1];`;
       filter += `[m1]atrim=0:${curDur.toFixed(3)},asetpts=PTS-STARTPTS[m2];`;
       filter += `[aoutpre]volume=${ovol}[aorig];`;
-      filter += `[aorig][m2]amix=inputs=2:duration=first:dropout_transition=2,afade=t=in:st=0:d=0.3,afade=t=out:st=${Math.max(0, curDur - 0.8).toFixed(3)}:d=0.8[aout];`;
+      filter += `[aorig][m2]amix=inputs=2:duration=first:dropout_transition=2,afade=t=in:st=0:d=0.3,afade=t=out:st=${Math.max(0, curDur - 0.8).toFixed(3)}:d=0.8,${loud}[aout];`;
       filter += `[voutpre]null[vout];`;
     }
   } else if (plan.music && plan.music.mode === "original") {
-    filter += `[aoutpre]anull[aout];[voutpre]null[vout];`;
+    filter += `[aoutpre]${loud}[aout];[voutpre]null[vout];`;
   } else {
-    filter += `[aoutpre]anull[aout];[voutpre]null[vout];`;
+    filter += `[aoutpre]${loud}[aout];[voutpre]null[vout];`;
   }
 
   await opts.onProgress?.("Rendering", 75);

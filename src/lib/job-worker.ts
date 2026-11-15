@@ -2,11 +2,13 @@ import path from "path";
 import fs from "fs/promises";
 import { prisma } from "./db";
 import { analyzeVideoForHighlights } from "./analysis";
-import { renderClip, probeVideo, generateThumbnail } from "./ffmpeg";
+import { renderClip, probeVideo, generateThumbnail, convertResizeVideo } from "./ffmpeg";
 import { clipsDir, tempDir, ensureProjectDirs } from "./storage";
 import { safeJsonParse } from "./utils";
 import { buildMontagePlan, renderMontage } from "./montage";
 import { downloadYouTubeVideo, isYouTubeUrl } from "./youtube";
+import { renderBeatSync } from "./beat/beat-render";
+import { getBrandKit, loudnormFilter } from "./brand";
 
 async function getSetting(key: string, envKey?: string) {
   const row = await prisma.setting.findUnique({ where: { key } }).catch(() => null);
@@ -16,6 +18,72 @@ async function getSetting(key: string, envKey?: string) {
 async function updateJob(jobId: string, data: any) { await prisma.job.update({ where: { id: jobId }, data }); }
 async function updateProject(projectId: string, data: any) { await prisma.project.update({ where: { id: projectId }, data }); }
 
+
+async function processAutoBeatJob(job: any) {
+  const project = await prisma.project.findUnique({ where: { id: job.projectId } });
+  if (!project) throw new Error("Project missing");
+  await ensureProjectDirs(project.id);
+  const payload = safeJsonParse(job.payloadJson, {} as any);
+  const plan = payload.plan;
+  if (!project.sourcePath) throw new Error("Source video missing");
+  if (!payload.audioPath) throw new Error("Audio/musik untuk Auto Beat tidak ditemukan");
+  if (!plan || !Array.isArray(plan.cuts) || plan.cuts.length < 2) throw new Error("Sync plan tidak valid");
+
+  await updateJob(job.id, { status: "RENDERING", stage: "Preparing", progress: 5, startedAt: job.startedAt || new Date(), error: null });
+  await updateProject(project.id, { status: "RENDERING", errorMessage: null });
+
+  const outDir = clipsDir(project.id);
+  await fs.mkdir(outDir, { recursive: true });
+  const safe = String(payload.name || "auto-beat").replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 60) || "auto-beat";
+  const outPath = path.join(outDir, `${Date.now()}-${safe}.mp4`);
+
+  const result = await renderBeatSync({
+    videoPath: project.sourcePath,
+    audioPath: payload.audioPath,
+    outputPath: outPath,
+    plan,
+    mode: payload.mode || "replace",
+    musicVolume: Number(payload.musicVolume ?? 1),
+    originalVolume: Number(payload.originalVolume ?? 0.8),
+    onProgress: async (stage, progress) => {
+      await updateJob(job.id, { stage, progress, status: "RENDERING" as any });
+    },
+  });
+
+  const st = await fs.stat(outPath).catch(() => null);
+  await prisma.clip.deleteMany({ where: { projectId: project.id } });
+  await prisma.clip.create({
+    data: {
+      projectId: project.id,
+      title: project.name || "Auto Beat",
+      description: result.note || "Auto Beat render",
+      category: "auto-beat",
+      startTime: 0,
+      endTime: result.duration || 0,
+      duration: result.duration || 0,
+      relevance: 100,
+      reason: result.note || "",
+      aspectRatio: result.width && result.height ? `${result.width}:${result.height}` : null,
+      resolution: result.width && result.height ? `${result.width}x${result.height}` : null,
+      fileSize: st?.size || result.fileSize || null,
+      outputPath: outPath,
+      status: "completed",
+    } as any,
+  });
+
+  await updateProject(project.id, {
+    status: "COMPLETED",
+    outputPath: outPath,
+    outputDuration: result.duration || null,
+    outputSize: st?.size || result.fileSize || null,
+    outputWidth: result.width || null,
+    outputHeight: result.height || null,
+    errorMessage: null,
+  } as any);
+  await updateJob(job.id, { status: "COMPLETED", stage: "Completed", progress: 100, finishedAt: new Date(), resultJson: JSON.stringify({ outputPath: outPath, duration: result.duration, note: result.note }) });
+}
+
+
 async function processMontageJob(job: any) {
   const project = await prisma.project.findUnique({ where: { id: job.projectId }, include: { montageAssets: true } as any });
   if (!project) throw new Error("Project missing");
@@ -24,6 +92,7 @@ async function processMontageJob(job: any) {
   const config = safeJsonParse(project.configJson, {} as any);
   const work = tempDir(project.id);
   const payload = safeJsonParse(job.payloadJson, {} as any);
+
 
   await updateJob(job.id, { status: "ANALYZING", stage: "Preparing Media", progress: 5, startedAt: new Date(), error: null });
   await updateProject(project.id, { status: "ANALYZING", errorMessage: null });
@@ -120,12 +189,134 @@ async function processMontageJob(job: any) {
   await updateJob(job.id, { status: "COMPLETED", stage: "Completed", progress: 100, finishedAt: new Date(), resultJson: JSON.stringify({ outputPath: outPath, duration: result.duration, plan }) });
 }
 
+async function processMixAudioJob(job: any) {
+  const project = await prisma.project.findUnique({ where: { id: job.projectId } });
+  if (!project) throw new Error("Project missing");
+  await ensureProjectDirs(project.id);
+  const payload = safeJsonParse(job.payloadJson, {} as any);
+  if (!project.sourcePath) throw new Error("Source video missing");
+  if (!payload.audioPath) throw new Error("Audio/musik tidak ditemukan");
+  const mode = String(payload.mode || "mix");
+  const musicVolume = Math.max(0, Math.min(2, Number(payload.musicVolume ?? 1)));
+  const originalVolume = Math.max(0, Math.min(2, Number(payload.originalVolume ?? 0.8)));
+  const ff = process.env.FFMPEG_PATH || "ffmpeg";
+
+  await updateJob(job.id, { status: "RENDERING", stage: "Rendering", progress: 10, startedAt: job.startedAt || new Date(), error: null });
+  await updateProject(project.id, { status: "RENDERING", errorMessage: null });
+
+  const outDir = clipsDir(project.id);
+  await fs.mkdir(outDir, { recursive: true });
+  const safe = String(payload.name || "video-audio").replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 60) || "video-audio";
+  const outPath = path.join(outDir, `${Date.now()}-${safe}.mp4`);
+
+  const { runProcess } = await import("./ffmpeg");
+  let args: string[];
+  if (mode === "replace" || mode === "music") {
+    args = ["-y", "-i", project.sourcePath, "-stream_loop", "-1", "-i", payload.audioPath, "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", outPath];
+    let r = await runProcess(ff, args);
+    if (r.code !== 0) {
+      args = ["-y", "-i", project.sourcePath, "-stream_loop", "-1", "-i", payload.audioPath, "-map", "0:v:0", "-map", "1:a:0", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", outPath];
+      r = await runProcess(ff, args);
+      if (r.code !== 0) throw new Error(`Gagal merender video: ${(r.stderr || r.stdout || "").slice(-500)}`);
+    }
+  } else {
+    const brand = await getBrandKit().catch(() => null);
+    const loud = brand && brand.loudnessNormalize === false ? "alimiter=limit=0.95" : loudnormFilter(brand || { loudnessTargetI: -14, loudnessTargetTP: -1.5, loudnessTargetLRA: 11 } as any);
+    const filter = `[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,aresample=async=1,volume=${originalVolume}[a0];[1:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,aresample=async=1,volume=${musicVolume}[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2,${loud}[aout]`;
+    args = ["-y", "-i", project.sourcePath, "-stream_loop", "-1", "-i", payload.audioPath, "-filter_complex", filter, "-map", "0:v:0", "-map", "[aout]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", outPath];
+    let r = await runProcess(ff, args);
+    if (r.code !== 0) {
+      args = ["-y", "-i", project.sourcePath, "-stream_loop", "-1", "-i", payload.audioPath, "-filter_complex", `[1:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,aresample=async=1,volume=${musicVolume},${loud}[aout]`, "-map", "0:v:0", "-map", "[aout]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", outPath];
+      r = await runProcess(ff, args);
+      if (r.code !== 0) throw new Error(`Gagal merender video: ${(r.stderr || r.stdout || "").slice(-500)}`);
+    }
+  }
+
+  await updateJob(job.id, { stage: "Finalizing", progress: 90, status: "RENDERING" as any });
+  let duration: number | null = null;
+  try { duration = (await probeVideo(outPath)).duration || null; } catch {}
+  const st = await fs.stat(outPath).catch(() => null);
+
+  await prisma.clip.deleteMany({ where: { projectId: project.id } });
+  await prisma.clip.create({
+    data: {
+      projectId: project.id,
+      title: project.name || "Video dengan Suara",
+      description: `Audio ${mode} diterapkan`,
+      category: "add-audio",
+      startTime: 0,
+      endTime: duration || 0,
+      duration: duration || 0,
+      relevance: 100,
+      reason: `mode=${mode}`,
+      fileSize: st?.size || null,
+      outputPath: outPath,
+      status: "completed",
+    } as any,
+  });
+
+  await updateProject(project.id, { status: "COMPLETED", outputPath: outPath, outputDuration: duration || null, outputSize: st?.size || null, errorMessage: null } as any);
+  await updateJob(job.id, { status: "COMPLETED", stage: "Completed", progress: 100, finishedAt: new Date(), resultJson: JSON.stringify({ outputPath: outPath, duration, mode }) });
+}
+
+async function processConvertResizeJob(job: any) {
+  const project = await prisma.project.findUnique({ where: { id: job.projectId } });
+  if (!project) throw new Error("Project missing");
+  await ensureProjectDirs(project.id);
+  const payload = safeJsonParse(job.payloadJson, {} as any);
+  if (!project.sourcePath) throw new Error("Source video missing");
+  const aspect = (payload.aspect || "16:9") as any;
+  const fit = (payload.fit || "pad") as any;
+  const quality = (payload.quality || "medium") as any;
+  const keepAudio = payload.keepAudio !== false;
+
+  await updateJob(job.id, { status: "RENDERING", stage: "Converting", progress: 10, startedAt: job.startedAt || new Date(), error: null });
+  await updateProject(project.id, { status: "RENDERING", errorMessage: null });
+
+  const outDir = clipsDir(project.id);
+  await fs.mkdir(outDir, { recursive: true });
+  const safe = String(payload.name || "converted").replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 60) || "converted";
+  const outPath = path.join(outDir, `${Date.now()}-${safe}.mp4`);
+
+  await convertResizeVideo({ input: project.sourcePath, output: outPath, aspect, fit, quality, keepAudio });
+  await updateJob(job.id, { stage: "Finalizing", progress: 90, status: "RENDERING" as any });
+  let duration: number | null = null, width: number | null = null, height: number | null = null;
+  try { const info = await probeVideo(outPath); duration = info.duration || null; width = info.width || null; height = info.height || null; } catch {}
+  const st = await fs.stat(outPath).catch(() => null);
+
+  await prisma.clip.deleteMany({ where: { projectId: project.id } });
+  await prisma.clip.create({
+    data: {
+      projectId: project.id,
+      title: project.name || "Converted Video",
+      description: `Convert/Resize ${aspect} (${fit})`,
+      category: "convert-resize",
+      startTime: 0, endTime: duration || 0, duration: duration || 0,
+      relevance: 100, reason: `aspect=${aspect},fit=${fit}`,
+      resolution: width && height ? `${width}x${height}` : null,
+      fileSize: st?.size || null, outputPath: outPath, status: "completed",
+    } as any,
+  });
+
+  await updateProject(project.id, { status: "COMPLETED", outputPath: outPath, outputDuration: duration || null, outputSize: st?.size || null, outputWidth: width, outputHeight: height, errorMessage: null } as any);
+  await updateJob(job.id, { status: "COMPLETED", stage: "Completed", progress: 100, finishedAt: new Date(), resultJson: JSON.stringify({ outputPath: outPath, duration, aspect, fit }) });
+}
+
 async function processJob(job: any) {
   const project = await prisma.project.findUnique({ where: { id: job.projectId }, include: { clips: true } });
   if (!project) throw new Error("Project missing");
   const p: any = project;
   if (p.type === "montage" || job.type === "montage") {
     return processMontageJob(job);
+  }
+  if (p.type === "auto-beat" || job.type === "beat_sync") {
+    return processAutoBeatJob(job);
+  }
+  if (p.type === "mix-audio" || job.type === "mix_audio") {
+    return processMixAudioJob(job);
+  }
+  if (p.type === "convert-resize" || job.type === "convert_resize") {
+    return processConvertResizeJob(job);
   }
   await ensureProjectDirs(project.id);
   const config = safeJsonParse(project.configJson, { duration: 30, quantity: 3, mode: "Best Moments", prompt: "", aspect: "9:16", style: "Cinematic Anime" });
