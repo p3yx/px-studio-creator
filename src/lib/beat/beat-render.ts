@@ -145,6 +145,27 @@ export async function renderBeatSync(opts: BeatRenderOptions) {
     if (r.code !== 0) throw new Error(`Gagal merender Auto Beat: ${(r.stderr || r.stdout || "").slice(-800)}`);
   }
 
+  // Optional watermark post-process
+  try {
+    const wmKit = brand || await getBrandKit().catch(() => null);
+    if (wmKit?.watermarkEnabled && wmKit.watermarkPath) {
+      await opts.onProgress?.("Finalizing", 97);
+      const tmpOut = outputPath.replace(/\.mp4$/i, "") + `.wm-${Date.now()}.mp4`;
+      const ffmod = await import("@/lib/ffmpeg");
+      await ffmod.applyWatermarkToVideo({
+        input: outputPath,
+        output: tmpOut,
+        watermarkPath: wmKit.watermarkPath,
+        watermarkPosition: wmKit.watermarkPosition,
+        watermarkOpacity: wmKit.watermarkOpacity,
+        watermarkScale: wmKit.watermarkScale,
+        watermarkMargin: wmKit.watermarkMargin,
+        quality: "medium",
+      });
+      await fs.rename(tmpOut, outputPath).catch(async () => { await fs.copyFile(tmpOut, outputPath); await fs.unlink(tmpOut).catch(()=>{}); });
+    }
+  } catch {}
+
   await opts.onProgress?.("Finalizing", 95);
   let duration: number | null = null;
   try { duration = (await probeVideo(outputPath)).duration || null; } catch {}

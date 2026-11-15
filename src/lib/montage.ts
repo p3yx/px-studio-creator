@@ -327,6 +327,26 @@ export async function renderMontage(opts: {
   const res = await runProcess(ff, args);
   if (res.code !== 0) throw new Error(`Montage render failed: ${res.stderr.slice(-800)}`);
 
+  // Optional watermark post-process (safe, does not alter montage filter graph)
+  try {
+    const wmKit = await getBrandKit().catch(() => null);
+    if (wmKit?.watermarkEnabled && wmKit.watermarkPath) {
+      await opts.onProgress?.("Finalizing", 99);
+      const tmpOut = opts.outputPath.replace(/\.mp4$/i, "") + `.wm-${Date.now()}.mp4`;
+      await (await import("./ffmpeg")).applyWatermarkToVideo({
+        input: opts.outputPath,
+        output: tmpOut,
+        watermarkPath: wmKit.watermarkPath,
+        watermarkPosition: wmKit.watermarkPosition,
+        watermarkOpacity: wmKit.watermarkOpacity,
+        watermarkScale: wmKit.watermarkScale,
+        watermarkMargin: wmKit.watermarkMargin,
+        quality: opts.quality || "medium",
+      });
+      await fs.rename(tmpOut, opts.outputPath).catch(async () => { await fs.copyFile(tmpOut, opts.outputPath); await fs.unlink(tmpOut).catch(()=>{}); });
+    }
+  } catch {}
+
   await opts.onProgress?.("Finalizing", 98);
   let duration = 0, width = w, height = h;
   try { const p = await probeVideo(opts.outputPath); duration = p.duration || curDur; width = p.width || w; height = p.height || h; } catch { duration = curDur; }

@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
         type: "auto-beat",
         status: "WAITING",
         sourceFileName: video.name || "video.mp4",
-        configJson: JSON.stringify({ tool: "auto-beat", mode, musicVolume, originalVolume, planPreset: plan.preset || null }),
+        configJson: JSON.stringify({ tool: "auto-beat", mode, musicVolume, originalVolume, planPreset: plan.preset || null, plan, planLocked: true }),
       } as any,
     });
     await ensureProjectDirs(project.id);

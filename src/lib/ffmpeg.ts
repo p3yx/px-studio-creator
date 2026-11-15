@@ -254,6 +254,56 @@ function escapeSubtitleFilterPath(p: string) {
   return p.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
 }
 
+export async function applyWatermarkToVideo(opts: {
+  input: string;
+  output: string;
+  watermarkPath: string;
+  watermarkPosition?: "top-left" | "top-right" | "bottom-left" | "bottom-right" | "center";
+  watermarkOpacity?: number;
+  watermarkScale?: number;
+  watermarkMargin?: number;
+  quality?: "high" | "medium" | "fast";
+}) {
+  await fs.mkdir(path.dirname(opts.output), { recursive: true });
+  const wmPath = await fs.stat(opts.watermarkPath).then(()=>opts.watermarkPath).catch(()=>null);
+  if (!wmPath) throw new Error("Watermark file not found");
+  const margin = Math.max(0, Math.round(opts.watermarkMargin ?? 24));
+  const scale = Math.max(0.05, Math.min(0.6, Number(opts.watermarkScale ?? 0.18) || 0.18));
+  const opacity = Math.max(0, Math.min(1, Number(opts.watermarkOpacity ?? 0.8) || 0.8));
+  const pos = opts.watermarkPosition || "bottom-right";
+  const xy = pos === "top-left" ? `x=${margin}:y=${margin}`
+    : pos === "top-right" ? `x=W-w-${margin}:y=${margin}`
+    : pos === "bottom-left" ? `x=${margin}:y=H-h-${margin}`
+    : pos === "center" ? `x=(W-w)/2:y=(H-h)/2`
+    : `x=W-w-${margin}:y=H-h-${margin}`;
+  const crf = opts.quality === "high" ? "20" : opts.quality === "fast" ? "28" : "23";
+  const presetEnc = opts.quality === "fast" ? "veryfast" : "medium";
+  const fc = `[1:v]format=rgba,colorchannelmixer=aa=${opacity.toFixed(3)},scale=iw*${scale.toFixed(4)}:-1[wm];[0:v][wm]overlay=${xy}[vout]`;
+  const args = [
+    "-y", "-i", opts.input, "-i", wmPath,
+    "-filter_complex", fc, "-map", "[vout]", "-map", "0:a?",
+    "-c:v", "libx264", "-preset", presetEnc, "-crf", crf, "-pix_fmt", "yuv420p",
+    "-c:a", "copy",
+    "-movflags", "+faststart",
+    opts.output,
+  ];
+  let { code, stderr } = await runProcess(FFMPEG, args);
+  if (code !== 0) {
+    // fallback re-encode audio if copy fails
+    const args2 = [
+      "-y", "-i", opts.input, "-i", wmPath,
+      "-filter_complex", fc, "-map", "[vout]", "-map", "0:a?",
+      "-c:v", "libx264", "-preset", presetEnc, "-crf", crf, "-pix_fmt", "yuv420p",
+      "-c:a", "aac", "-b:a", "192k",
+      "-movflags", "+faststart",
+      opts.output,
+    ];
+    const r2 = await runProcess(FFMPEG, args2);
+    if (r2.code !== 0) throw new Error(`Watermark failed: ${String(r2.stderr || stderr || "").slice(-500)}`);
+  }
+  return opts.output;
+}
+
 export async function burnSubtitlesIntoVideo(opts: {
   input: string;
   subtitlePath: string;
