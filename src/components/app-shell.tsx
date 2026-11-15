@@ -2,9 +2,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, Sparkles, FolderKanban, Settings, User, Menu, X, Clapperboard, Wand2, AudioLines, Library, Volume2, Music, Captions, Scaling } from "lucide-react";
+import { LayoutDashboard, Sparkles, FolderKanban, Settings, User, Menu, X, Clapperboard, Wand2, AudioLines, Library, Volume2, Music, Captions, Scaling, QrCode } from "lucide-react";
 import { BrandLockup, PxLogoMark } from "@/components/brand";
-import { QrisDonate } from "@/components/qris-donate";
 import { useState } from "react";
 
 const nav = [
@@ -19,6 +18,7 @@ const nav = [
   { href: "/ai-studio/audio-extractor", label: "Audio Extractor", icon: AudioLines },
   { href: "/ai-studio/text-to-speech", label: "Text to Speech", icon: Volume2 },
   { href: "/ai-studio/audio-library", label: "Audio Library", icon: Library },
+  { href: "/support", label: "Dukung via QRIS", icon: QrCode },
   { href: "/settings", label: "Settings", icon: Settings },
   { href: "/profile", label: "Profile", icon: User },
 ];
@@ -52,7 +52,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
         <div className="pt-3 px-1 shrink-0 border-t border-white/5 mt-2 space-y-2.5">
-          <QrisDonate />
           <div className="brand-showcase p-3.5 min-h-[74px]">
             <div className="brand-fx" aria-hidden="true">
               <div className="brand-orbit" />
