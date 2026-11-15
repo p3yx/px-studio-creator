@@ -99,6 +99,11 @@ export default function SupportClient() {
     if (expired) setStatusMsg("Waktu pembayaran telah berakhir. Silakan buat QRIS baru.");
   }, [expired]);
 
+  useEffect(() => {
+    generate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function downloadQr() {
     const canvas = canvasRef.current;
     if (!canvas || !payload) return;
