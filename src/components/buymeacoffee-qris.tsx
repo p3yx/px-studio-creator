@@ -121,99 +121,102 @@ export function BuyMeACoffeeQris() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="group w-full flex items-center gap-3 rounded-xl border border-amber-400/20 bg-amber-400/10 hover:bg-amber-400/15 hover:border-amber-300/30 px-3.5 py-2.5 transition text-left"
+        className="group w-full flex items-center gap-3 rounded-xl border border-amber-400/20 bg-amber-400/10 hover:bg-amber-400/15 hover:border-amber-300/30 px-3 py-2.5 transition text-left"
         aria-label="Buy Me a Coffee"
         title="Buy Me a Coffee (QRIS)"
       >
-        <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-amber-400 text-[#2b1a00] shadow-sm shrink-0">
+        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-400 text-[#2b1a00] shadow-sm">
           <Coffee size={16} strokeWidth={2.5} />
         </span>
-        <span className="leading-tight">
+        <span className="min-w-0 leading-tight">
           <span className="block text-sm font-semibold text-amber-100">Buy Me a Coffee</span>
           <span className="block text-[11px] text-amber-200/70">Dukung via QRIS dinamis</span>
         </span>
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Buy Me a Coffee">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={() => setOpen(false)} />
-          <div className="relative w-full max-w-lg max-h-[92vh] rounded-2xl border border-white/10 bg-[#141724] shadow-2xl flex flex-col overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-white/10 shrink-0">
-              <div className="flex items-center gap-3">
-                <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-amber-400 text-[#2b1a00]"><Coffee size={18} strokeWidth={2.5} /></span>
-                <div>
-                  <div className="font-semibold text-white">Buy Me a Coffee</div>
-                  <div className="text-xs text-zinc-400">Dukung PX STUDIO CREATOR via QRIS dinamis</div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6" role="dialog" aria-modal="true" aria-label="Buy Me a Coffee">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setOpen(false)} />
+          <div className="relative w-full max-w-md max-h-[92vh] rounded-2xl border border-white/10 bg-[#141724] shadow-2xl flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10 shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-400 text-[#2b1a00]"><Coffee size={18} strokeWidth={2.5} /></span>
+                <div className="min-w-0">
+                  <div className="font-semibold text-white truncate">Buy Me a Coffee</div>
+                  <div className="text-xs text-zinc-400 truncate">Dukung PX STUDIO CREATOR via QRIS dinamis</div>
                 </div>
               </div>
-              <button onClick={() => setOpen(false)} className="h-8 w-8 inline-flex items-center justify-center rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white transition" aria-label="Tutup"><X size={16} /></button>
+              <button onClick={() => setOpen(false)} className="h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white transition" aria-label="Tutup"><X size={16} /></button>
             </div>
 
-            <div className="p-5 space-y-4 overflow-y-auto">
-              {error && <div className="rounded-xl border border-red-500/20 bg-red-500/10 text-red-300 text-sm px-4 py-3">{error}</div>}
+            <div className="p-4 sm:p-5 space-y-4 overflow-y-auto">
+              {error && <div className="rounded-xl border border-red-500/20 bg-red-500/10 text-red-300 text-sm px-3 py-2.5">{error}</div>}
 
-              <div className="space-y-2">
-                <div className="text-sm font-medium text-zinc-200">Nominal Dukungan</div>
-                <div className="grid grid-cols-4 gap-2">
-                  {PRESETS.map((p) => (
-                    <button key={p} type="button" onClick={() => { setAmount(p); setCustom(""); resetQr(); }}
-                      className={`h-9 rounded-lg text-xs font-medium border transition ${!custom && amount === p ? "bg-amber-400/20 border-amber-400/40 text-amber-100" : "bg-white/[0.03] border-white/10 text-zinc-300 hover:bg-white/[0.06]"}`}>
-                      {rp(p)}
-                    </button>
-                  ))}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <div className="text-sm font-medium text-zinc-200">Nominal</div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {PRESETS.map((p) => (
+                      <button key={p} type="button" onClick={() => { setAmount(p); setCustom(""); resetQr(); }}
+                        className={`h-9 rounded-lg text-xs font-medium border transition ${!custom && amount === p ? "bg-amber-400/20 border-amber-400/40 text-amber-100" : "bg-white/[0.03] border-white/10 text-zinc-300 hover:bg-white/[0.06]"}`}>
+                        {rp(p)}
+                      </button>
+                    ))}
+                  </div>
+                  <input value={custom} onChange={(e) => { setCustom(e.target.value.replace(/[^\d]/g, "")); resetQr(); }} placeholder="Nominal lain (cth: 25000)" inputMode="numeric"
+                    className="w-full h-9 rounded-lg bg-white/[0.03] border border-white/10 px-2.5 text-sm text-white placeholder:text-zinc-500 outline-none focus:border-amber-400/40" />
+                  <div className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-2">
+                    <span className="text-xs text-zinc-400">Total</span>
+                    <span className="text-sm font-semibold text-amber-200">{rp(effectiveAmount || 0)}</span>
+                  </div>
+                  <button type="button" onClick={generate} disabled={loading || effectiveAmount < 1000}
+                    className="w-full h-9 rounded-lg bg-amber-400 hover:bg-amber-300 disabled:opacity-50 text-[#2b1a00] font-semibold text-sm transition inline-flex items-center justify-center gap-2">
+                    {loading ? <Loader2 size={15} className="animate-spin" /> : <QrCode size={15} />}
+                    {loading ? "Membuat..." : "Buat QRIS Dinamis"}
+                  </button>
                 </div>
-                <input value={custom} onChange={(e) => { setCustom(e.target.value.replace(/[^\d]/g, "")); resetQr(); }} placeholder="Nominal lain (contoh: 25000)" inputMode="numeric"
-                  className="w-full h-10 rounded-lg bg-white/[0.03] border border-white/10 px-3 text-sm text-white placeholder:text-zinc-500 outline-none focus:border-amber-400/40" />
-                <div className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2">
-                  <span className="text-sm text-zinc-400">Total</span>
-                  <span className="text-sm font-semibold text-amber-200">{rp(effectiveAmount || 0)}</span>
+
+                <div className="space-y-2">
+                  <div className="text-sm font-medium text-zinc-200">QRIS Pembayaran</div>
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-2 flex items-center justify-center min-h-[190px]">
+                    {payload ? <canvas ref={canvasRef} width={176} height={176} className="block" /> : <img src="/qris/qris.jpg" alt="QRIS" className="w-full max-w-[176px] rounded-lg object-contain" />}
+                  </div>
+                  {!payload && <div className="text-[11px] text-zinc-500 text-center">QRIS Anda / placeholder tampil sebelum QR dibuat</div>}
+                  {payload && !ready && <div className="text-[11px] text-zinc-400 text-center">Merender QR...</div>}
+                  {payload && (
+                    <div className="flex items-center justify-center gap-1.5 text-xs">
+                      <Clock size={12} className={expired ? "text-red-300" : "text-emerald-300"} />
+                      <span className="text-zinc-400">Sisa:</span>
+                      <span className={`font-semibold tabular-nums ${expired ? "text-red-300" : "text-emerald-200"}`}>{confirmed ? "Selesai" : expired ? "00:00" : formatCountdown(remaining)}</span>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button type="button" onClick={downloadQr} disabled={!payload} className="h-8 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 disabled:opacity-50 text-xs text-zinc-200 inline-flex items-center justify-center gap-1.5"><Download size={12}/> QR</button>
+                    <button type="button" onClick={confirmPayment} disabled={checking || expired || confirmed || !payload}
+                      className="h-8 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-[#062016] font-semibold text-xs inline-flex items-center justify-center gap-1.5">
+                      {checking ? <Loader2 size={12} className="animate-spin" /> : confirmed ? <CheckCircle2 size={12} /> : null}
+                      {checking ? "Cek..." : confirmed ? "Selesai" : "Konfirmasi"}
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              <button type="button" onClick={generate} disabled={loading || effectiveAmount < 1000}
-                className="w-full h-10 rounded-lg bg-amber-400 hover:bg-amber-300 disabled:opacity-50 text-[#2b1a00] font-semibold text-sm transition inline-flex items-center justify-center gap-2">
-                {loading ? <Loader2 size={16} className="animate-spin" /> : <QrCode size={16} />}
-                {loading ? "Membuat QRIS..." : "Buat QRIS Dinamis"}
-              </button>
-
-              <div className="rounded-xl border border-white/10 bg-black/20 p-4 space-y-3">
-                <div className="text-sm font-medium text-zinc-200">Instruksi Pembayaran</div>
-                <ol className="list-decimal pl-5 space-y-1 text-xs text-zinc-400 leading-relaxed">
-                  <li>Scan QRIS menggunakan e-wallet atau mobile banking.</li>
-                  <li>Pastikan nominal pembayaran sesuai total.</li>
+              <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5">
+                <div className="text-sm font-medium text-zinc-200 mb-1">Instruksi Pembayaran</div>
+                <ol className="list-decimal pl-4 space-y-0.5 text-xs text-zinc-400 leading-relaxed">
+                  <li>Scan QRIS menggunakan e-wallet / mobile banking.</li>
+                  <li>Pastikan nominal sesuai total.</li>
                   <li>Selesaikan pembayaran sebelum waktu berakhir.</li>
                 </ol>
-                <div className="flex justify-center pt-1">
-                  <div className="bg-white p-2 rounded-lg min-h-[236px] min-w-[236px] flex items-center justify-center">
-                    {payload ? <canvas ref={canvasRef} width={220} height={220} className="block" /> : <div className="text-xs text-zinc-500 text-center px-4">QRIS akan muncul di sini setelah dibuat.</div>}
-                  </div>
-                </div>
-                {payload && !ready && <div className="text-xs text-zinc-400 text-center">Merender QR...</div>}
-                {payload && (
-                  <>
-                    <div className="flex items-center justify-center gap-2 text-sm">
-                      <Clock size={14} className={expired ? "text-red-300" : "text-emerald-300"} />
-                      <span className="text-zinc-400">Batas waktu pembayaran:</span>
-                      <span className={`font-semibold tabular-nums ${expired ? "text-red-300" : "text-emerald-200"}`}>{confirmed ? "Selesai" : expired ? "00:00 (kedaluwarsa)" : formatCountdown(remaining)}</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button type="button" onClick={downloadQr} className="h-9 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-sm text-zinc-200 inline-flex items-center justify-center gap-2"><Download size={14}/> Download QRIS</button>
-                      <button type="button" onClick={confirmPayment} disabled={checking || expired || confirmed}
-                        className="h-9 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-[#062016] font-semibold text-sm inline-flex items-center justify-center gap-2">
-                        {checking ? <Loader2 size={14} className="animate-spin" /> : confirmed ? <CheckCircle2 size={14} /> : null}
-                        {checking ? "Memeriksa..." : confirmed ? "Terkonfirmasi" : "Konfirmasi Pembayaran"}
-                      </button>
-                    </div>
-                  </>
-                )}
-                {(statusMsg || confirmed) && (
-                  <div className={`rounded-lg border px-3 py-2 text-sm ${confirmed ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-200" : expired ? "border-red-500/20 bg-red-500/10 text-red-300" : "border-white/10 bg-white/[0.03] text-zinc-300"}`}>
-                    <div className="font-medium mb-0.5">{confirmed ? "Status: Dukungan diterima" : expired ? "Status: Kedaluwarsa" : "Status: Menunggu pembayaran"}</div>
-                    <div className="text-xs opacity-90">{statusMsg}</div>
-                  </div>
-                )}
               </div>
-              <div className="text-[11px] text-zinc-500 text-center">QRIS dinamis (sistem sama seperti checkout NetMart).</div>
+
+              {(statusMsg || confirmed) && (
+                <div className={`rounded-xl border px-3 py-2.5 text-sm ${confirmed ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-200" : expired ? "border-red-500/20 bg-red-500/10 text-red-300" : "border-white/10 bg-white/[0.03] text-zinc-300"}`}>
+                  <div className="font-medium mb-0.5">{confirmed ? "Status: Dukungan diterima" : expired ? "Status: Kedaluwarsa" : "Status: Menunggu pembayaran"}</div>
+                  <div className="text-xs opacity-90">{statusMsg}</div>
+                </div>
+              )}
+              <div className="text-[11px] text-zinc-500 text-center">QRIS dinamis via provider (sistem sama seperti checkout NetMart).</div>
             </div>
           </div>
         </div>

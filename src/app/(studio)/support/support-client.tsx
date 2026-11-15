@@ -181,10 +181,11 @@ export default function SupportClient() {
             {payload ? (
               <canvas ref={canvasRef} width={240} height={240} className="block" />
             ) : (
-              <div className="text-sm text-zinc-500 text-center px-4">QRIS akan muncul di sini setelah dibuat.</div>
+              <img src="/qris/qris.jpg" alt="QRIS" className="w-full max-w-[240px] rounded-lg object-contain" />
             )}
           </div>
           {payload && !ready && <div className="text-xs text-zinc-400">Merender QR...</div>}
+          {!payload && <div className="text-xs text-zinc-500 text-center">QRIS Anda tampil sebelum QR dibuat</div>}
         </div>
 
         {payload && (
