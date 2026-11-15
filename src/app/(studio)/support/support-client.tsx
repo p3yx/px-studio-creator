@@ -71,7 +71,7 @@ export default function SupportClient() {
       setExpiresAt(t + EXPIRE_MS);
       setConfirmAvailableAt(t + CONFIRM_DELAY_MS);
       setNow(t);
-      setStatusMsg("QRIS berhasil dibuat. Silakan scan dan selesaikan pembayaran sebelum waktu berakhir. Tombol konfirmasi dapat digunakan setelah 30 detik.");
+      setStatusMsg("QRIS berhasil dibuat. Silakan scan dan selesaikan pembayaran sebelum waktu berakhir.");
     } catch (e: any) {
       setError(e?.message || "Gagal membuat QRIS dinamis");
     } finally {
@@ -111,7 +111,12 @@ export default function SupportClient() {
   }
 
   async function confirmPayment() {
-    if (!payload || expired || confirmRemaining > 0) return;
+    if (!payload || expired || confirmed) return;
+    if (confirmRemaining > 0) {
+      setStatusMsg("Pembayaran belum bisa dikonfirmasi. Silakan coba lagi beberapa saat.");
+      setError(null);
+      return;
+    }
     setChecking(true);
     setError(null);
     await new Promise((r) => setTimeout(r, 800));
@@ -194,14 +199,11 @@ export default function SupportClient() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <Button variant="secondary" onClick={downloadQr} className="w-full"><Download size={16}/> Download QRIS</Button>
-              <Button onClick={confirmPayment} disabled={checking || expired || confirmed || confirmRemaining > 0} className="w-full">
+              <Button onClick={confirmPayment} disabled={checking || expired || confirmed} className="w-full">
                 {checking ? <Loader2 size={16} className="animate-spin" /> : confirmed ? <CheckCircle2 size={16} /> : null}
-                {checking ? "Memeriksa..." : confirmed ? "Terkonfirmasi" : confirmRemaining > 0 ? `Tunggu ${Math.ceil(confirmRemaining / 1000)} detik` : "Konfirmasi Pembayaran"}
+                {checking ? "Memeriksa..." : confirmed ? "Terkonfirmasi" : "Konfirmasi Pembayaran"}
               </Button>
             </div>
-            {confirmRemaining > 0 && !confirmed && !expired && (
-              <div className="text-xs text-zinc-400 text-center">Tombol konfirmasi dapat digunakan setelah {Math.ceil(confirmRemaining / 1000)} detik.</div>
-            )}
           </>
         )}
 
