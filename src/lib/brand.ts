@@ -19,6 +19,9 @@ export type BrandKit = {
   subtitleAlignment: number; // ASS alignment 1-9, 2 bottom-center
   subtitleBold: boolean;
   subtitleItalic: boolean;
+  subtitleBorderStyle: number; // 1=outline+shadow, 3=opaque box
+  subtitleBackColor: string; // box/outline background color
+  subtitleBackOpacity: number; // 0..1 for box alpha
   loudnessNormalize: boolean;
   loudnessTargetI: number; // LUFS integrated, e.g. -14
   loudnessTargetTP: number; // dBTP, e.g. -1.5
@@ -42,6 +45,9 @@ export const defaultBrandKit: BrandKit = {
   subtitleAlignment: 2,
   subtitleBold: false,
   subtitleItalic: false,
+  subtitleBorderStyle: 1,
+  subtitleBackColor: "#000000",
+  subtitleBackOpacity: 0.5,
   loudnessNormalize: true,
   loudnessTargetI: -14,
   loudnessTargetTP: -1.5,
@@ -70,6 +76,9 @@ export function normalizeBrandKit(input: any): BrandKit {
     subtitleAlignment: clamp(Number(b.subtitleAlignment ?? defaultBrandKit.subtitleAlignment) || 2, 1, 9),
     subtitleBold: !!b.subtitleBold,
     subtitleItalic: !!b.subtitleItalic,
+    subtitleBorderStyle: [1,3,4].includes(Number(b.subtitleBorderStyle)) ? Number(b.subtitleBorderStyle) : defaultBrandKit.subtitleBorderStyle,
+    subtitleBackColor: String(b.subtitleBackColor || defaultBrandKit.subtitleBackColor),
+    subtitleBackOpacity: clamp(Number(b.subtitleBackOpacity ?? defaultBrandKit.subtitleBackOpacity) || 0, 0, 1),
     loudnessNormalize: b.loudnessNormalize === false ? false : true,
     loudnessTargetI: Number.isFinite(Number(b.loudnessTargetI)) ? Number(b.loudnessTargetI) : defaultBrandKit.loudnessTargetI,
     loudnessTargetTP: Number.isFinite(Number(b.loudnessTargetTP)) ? Number(b.loudnessTargetTP) : defaultBrandKit.loudnessTargetTP,
@@ -101,11 +110,14 @@ function hexToAss(hex: string, alphaHex = "00") {
 export function subtitleForceStyle(kit: BrandKit) {
   const primary = kit.subtitlePrimaryColor.startsWith("&H") ? kit.subtitlePrimaryColor : hexToAss(kit.subtitlePrimaryColor, "00");
   const outline = kit.subtitleOutlineColor.startsWith("&H") ? kit.subtitleOutlineColor : hexToAss(kit.subtitleOutlineColor, "00");
+  const backAlpha = Math.round(clamp(1 - (kit.subtitleBackOpacity ?? 0.5), 0, 1) * 255).toString(16).padStart(2, "0").toUpperCase();
+  const back = kit.subtitleBackColor.startsWith("&H") ? kit.subtitleBackColor : hexToAss(kit.subtitleBackColor, backAlpha);
   const parts = [
     `FontSize=${kit.subtitleFontSize}`,
     `PrimaryColour=${primary}`,
     `OutlineColour=${outline}`,
-    `BorderStyle=1`,
+    `BackColour=${back}`,
+    `BorderStyle=${kit.subtitleBorderStyle || 1}`,
     `Outline=${kit.subtitleOutline}`,
     `Shadow=${kit.subtitleShadow}`,
     `MarginV=${kit.subtitleMarginV}`,

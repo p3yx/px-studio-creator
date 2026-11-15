@@ -75,7 +75,8 @@ export async function POST(req: NextRequest) {
       duration = info.duration || null; width = info.width || null; height = info.height || null;
     } catch {}
     const vStat = await fs.stat(videoPath).catch(() => null);
-    await prisma.project.update({ where: { id: project.id }, data: { sourcePath: videoPath, sourceDuration: duration, sourceWidth: width, sourceHeight: height, sourceSize: vStat?.size || null } as any });
+    const cfg = { tool: "auto-beat", mode, musicVolume, originalVolume, planPreset: plan.preset || null, plan, planLocked: true, audioPath, name: safeName(name) };
+    await prisma.project.update({ where: { id: project.id }, data: { sourcePath: videoPath, sourceDuration: duration, sourceWidth: width, sourceHeight: height, sourceSize: vStat?.size || null, configJson: JSON.stringify(cfg) } as any });
 
     const payload = { plan, mode, musicVolume, originalVolume, audioPath, name: safeName(name) };
     const job = await prisma.job.create({

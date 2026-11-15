@@ -188,6 +188,21 @@ export default function SettingsClient() {
                   <label className="text-sm font-medium text-zinc-300">Alignment (ASS 1-9, 2=bottom-center)</label>
                   <Input value={String(data.brandKit?.subtitleAlignment ?? 2)} onChange={e=>fb('subtitleAlignment', e.target.value)} />
                 </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-zinc-300">Border Style Subtitle</label>
+                  <Select value={String(data.brandKit?.subtitleBorderStyle ?? 1)} onChange={e=>fb('subtitleBorderStyle', e.target.value)}>
+                    <option value="1">1 - Outline + Shadow</option>
+                    <option value="3">3 - Opaque Box</option>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-zinc-300">Warna Background/Box Subtitle</label>
+                  <Input value={data.brandKit?.subtitleBackColor||"#000000"} onChange={e=>fb('subtitleBackColor', e.target.value)} placeholder="#000000" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-zinc-300">Opacity Box Subtitle (0-1)</label>
+                  <Input value={String(data.brandKit?.subtitleBackOpacity ?? 0.5)} onChange={e=>fb('subtitleBackOpacity', e.target.value)} />
+                </div>
               </div>
             </div>
 

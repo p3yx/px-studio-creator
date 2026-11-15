@@ -15,10 +15,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const project = await prisma.project.findFirst({ where: { id, userId: user.id, type: "montage" }, include: { montageAssets: true } });
     if (!project) return NextResponse.json({ error: "Not found" }, { status: 404 });
     const body = await req.json().catch(() => ({}));
-    const config = (() => { try { return { ...JSON.parse(project.configJson || "{}"), ...(body.config || {}) }; } catch { return body.config || {}; } })();
+    const existingConfig = (() => { try { return JSON.parse(project.configJson || "{}"); } catch { return {}; } })();
+    const config = { ...existingConfig, ...(body.config || {}) };
     const videos = project.montageAssets.filter(a => a.kind === "video").sort((a,b)=>a.order-b.order);
     const music = project.montageAssets.find(a => a.kind === "music") || null;
     if (videos.length === 0) return NextResponse.json({ error: "Add at least one video clip" }, { status: 400 });
+
+    const force = !!body.force || body.regenerate === true;
+    if (!force && config.planLocked && existingConfig.plan) {
+      return NextResponse.json({ ok: true, plan: existingConfig.plan, config: { ...existingConfig, ...(body.config || {}), plan: existingConfig.plan }, locked: true });
+    }
 
     // apply trims/order overrides if provided
     const overrides = new Map<string, any>((body.assets || []).map((a: any) => [a.id, a]));
