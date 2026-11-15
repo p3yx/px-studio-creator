@@ -7,6 +7,7 @@ import { Card, Button, Input } from "@/components/ui";
 
 const PRESETS = [10000, 20000, 50000, 100000];
 const EXPIRE_MS = 15 * 60 * 1000;
+const CONFIRM_DELAY_MS = 30 * 1000;
 
 function rp(n: number) {
   return "Rp " + Number(n || 0).toLocaleString("id-ID");
@@ -29,18 +30,22 @@ export default function SupportClient() {
   const [payload, setPayload] = useState<string>("");
   const [ready, setReady] = useState(false);
   const [expiresAt, setExpiresAt] = useState<number>(0);
+  const [confirmAvailableAt, setConfirmAvailableAt] = useState<number>(0);
   const [now, setNow] = useState<number>(Date.now());
   const [confirmed, setConfirmed] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const effectiveAmount = custom.trim() ? Math.max(0, Math.round(Number(custom.replace(/[^\d]/g, "")) || 0)) : amount;
   const remaining = Math.max(0, expiresAt - now);
+  const confirmRemaining = Math.max(0, confirmAvailableAt - now);
   const expired = !!payload && remaining <= 0 && !confirmed;
+  const canConfirmNow = !!payload && !expired && !confirmed && confirmRemaining <= 0;
 
   function resetQr() {
     setPayload("");
     setReady(false);
     setExpiresAt(0);
+    setConfirmAvailableAt(0);
     setConfirmed(false);
     setStatusMsg(null);
     setError(null);
@@ -62,9 +67,11 @@ export default function SupportClient() {
       const j = await res.json().catch(() => ({}));
       if (!res.ok || !j.ok || !j.payload) throw new Error(j.error || "Gagal membuat QRIS dinamis");
       setPayload(String(j.payload));
-      setExpiresAt(Date.now() + EXPIRE_MS);
-      setNow(Date.now());
-      setStatusMsg("QRIS berhasil dibuat. Silakan scan dan selesaikan pembayaran sebelum waktu berakhir.");
+      const t = Date.now();
+      setExpiresAt(t + EXPIRE_MS);
+      setConfirmAvailableAt(t + CONFIRM_DELAY_MS);
+      setNow(t);
+      setStatusMsg("QRIS berhasil dibuat. Silakan scan dan selesaikan pembayaran sebelum waktu berakhir. Tombol konfirmasi dapat digunakan setelah 30 detik.");
     } catch (e: any) {
       setError(e?.message || "Gagal membuat QRIS dinamis");
     } finally {
@@ -104,7 +111,7 @@ export default function SupportClient() {
   }
 
   async function confirmPayment() {
-    if (!payload || expired) return;
+    if (!payload || expired || confirmRemaining > 0) return;
     setChecking(true);
     setError(null);
     await new Promise((r) => setTimeout(r, 800));
@@ -187,11 +194,14 @@ export default function SupportClient() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <Button variant="secondary" onClick={downloadQr} className="w-full"><Download size={16}/> Download QRIS</Button>
-              <Button onClick={confirmPayment} disabled={checking || expired || confirmed} className="w-full">
+              <Button onClick={confirmPayment} disabled={checking || expired || confirmed || confirmRemaining > 0} className="w-full">
                 {checking ? <Loader2 size={16} className="animate-spin" /> : confirmed ? <CheckCircle2 size={16} /> : null}
-                {checking ? "Memeriksa..." : confirmed ? "Terkonfirmasi" : "Konfirmasi Pembayaran"}
+                {checking ? "Memeriksa..." : confirmed ? "Terkonfirmasi" : confirmRemaining > 0 ? `Tunggu ${Math.ceil(confirmRemaining / 1000)} detik` : "Konfirmasi Pembayaran"}
               </Button>
             </div>
+            {confirmRemaining > 0 && !confirmed && !expired && (
+              <div className="text-xs text-zinc-400 text-center">Tombol konfirmasi dapat digunakan setelah {Math.ceil(confirmRemaining / 1000)} detik.</div>
+            )}
           </>
         )}
 

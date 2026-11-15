@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, Sparkles, FolderKanban, Settings, User, Menu, X, Clapperboard, Wand2, AudioLines, Library, Volume2, Music, Captions, Scaling, QrCode } from "lucide-react";
+import { LayoutDashboard, Sparkles, FolderKanban, Settings, User, Menu, X, Clapperboard, Wand2, AudioLines, Library, Volume2, Music, Captions, Scaling, Coffee } from "lucide-react";
 import { BrandLockup, PxLogoMark } from "@/components/brand";
 import { useState } from "react";
 
@@ -18,7 +18,7 @@ const nav = [
   { href: "/ai-studio/audio-extractor", label: "Audio Extractor", icon: AudioLines },
   { href: "/ai-studio/text-to-speech", label: "Text to Speech", icon: Volume2 },
   { href: "/ai-studio/audio-library", label: "Audio Library", icon: Library },
-  { href: "/support", label: "Dukung via QRIS", icon: QrCode },
+  { href: "/support", label: "Buy Me a Coffee", icon: Coffee },
   { href: "/settings", label: "Settings", icon: Settings },
   { href: "/profile", label: "Profile", icon: User },
 ];
