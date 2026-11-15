@@ -82,7 +82,7 @@ export async function analyzeVideoForHighlights(params: {
   }
 
   await params.onProgress?.("Finding Highlights", 70);
-  return heuristicHighlights(total, desired, clipDur, config.mode);
+  return heuristicHighlights(total, desired, clipDur, config.mode, !!transcriptSnippet);
 }
 
 async function transcribeAudioSafe(ai: AIConfig, wav: string) {
@@ -138,23 +138,32 @@ function normalizeHighlights(list: any[], total: number, clipDur: number, desire
   return picked.sort((a,b)=>a.start-b.start);
 }
 
-function heuristicHighlights(total: number, desired: number, clipDur: number, mode: string): HighlightCandidate[] {
+function heuristicHighlights(total: number, desired: number, clipDur: number, mode: string, hasTranscript = false): HighlightCandidate[] {
   const t = Math.max(total, clipDur * desired);
   const step = t / (desired + 1);
   const res: HighlightCandidate[] = [];
   const cat = mode && mode !== "Best Moments" && mode !== "Custom Prompt" ? mode : "Highlight";
+  const modeBias = /dialog|story|emotion/i.test(mode) ? "dialogue pacing" : /action|fight|hype|amv/i.test(mode) ? "energy pacing" : "balanced pacing";
   for (let i = 0; i < desired; i++) {
-    const center = step * (i + 1);
+    // Spread across timeline with slight bias away from absolute edges and toward early/mid peaks
+    const pos = (i + 1) / (desired + 1);
+    const bias = pos < 0.5 ? (0.95 + pos * 0.1) : (1.05 - (pos - 0.5) * 0.1);
+    const center = step * (i + 1) * bias;
     let start = clamp(center - clipDur / 2, 0, Math.max(0, t - clipDur));
     let end = clamp(start + clipDur, start + 3, t);
+    // Nudge away from very start/end for better highlight likelihood
+    if (start < 1 && t > clipDur + 2) { start = Math.min(1.5, Math.max(0, t - clipDur)); end = clamp(start + clipDur, start + 3, t); }
+    const score = clamp(Math.round(86 - i * 4 + (hasTranscript ? 4 : 0) + (/action|fight|hype/i.test(mode) && pos > 0.2 && pos < 0.85 ? 3 : 0)), 45, 96);
     res.push({
       start, end,
       title: `${cat} #${i + 1}`,
-      description: `Auto-detected ${cat.toLowerCase()} segment based on scene distribution.`,
+      description: `Auto-selected ${cat.toLowerCase()} segment using ${modeBias}${hasTranscript ? " with transcript-aware context" : ""}.`,
       category: cat,
-      score: Math.max(50, 90 - i * 5),
-      reason: "Heuristic selection distributed across the video (configure AI model for semantic analysis).",
+      score,
+      reason: hasTranscript
+        ? "Heuristic selection distributed across the timeline with transcript/audio context available (configure a capable AI model for deeper semantic scoring)."
+        : "Heuristic selection distributed across the timeline using pacing signals (configure AI/STT for richer audio+transcript scoring).",
     });
   }
-  return res;
+  return res.sort((a,b)=>a.start-b.start);
 }
