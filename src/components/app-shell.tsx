@@ -2,8 +2,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, Sparkles, FolderKanban, Settings, User, Menu, X, Clapperboard, Wand2, AudioLines, Library, Volume2, Music, Captions, Coffee, Scaling } from "lucide-react";
+import { LayoutDashboard, Sparkles, FolderKanban, Settings, User, Menu, X, Clapperboard, Wand2, AudioLines, Library, Volume2, Music, Captions, Scaling } from "lucide-react";
 import { BrandLockup, PxLogoMark } from "@/components/brand";
+import { QrisDonate } from "@/components/qris-donate";
 import { useState } from "react";
 
 const nav = [
@@ -51,22 +52,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
         <div className="pt-3 px-1 shrink-0 border-t border-white/5 mt-2 space-y-2.5">
-          <a
-            href="https://www.buymeacoffee.com/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="group flex items-center gap-3 rounded-xl border border-amber-400/20 bg-amber-400/10 hover:bg-amber-400/15 hover:border-amber-300/30 px-3.5 py-2.5 transition"
-            aria-label="Buy Me a Coffee"
-            title="Buy Me a Coffee"
-          >
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-amber-400 text-[#2b1a00] shadow-sm shrink-0">
-              <Coffee size={16} strokeWidth={2.5} />
-            </span>
-            <span className="leading-tight">
-              <span className="block text-sm font-semibold text-amber-100">Buy Me a Coffee</span>
-              <span className="block text-[11px] text-amber-200/70">Support PX STUDIO CREATOR</span>
-            </span>
-          </a>
+          <QrisDonate />
           <div className="brand-showcase p-3.5 min-h-[74px]">
             <div className="brand-fx" aria-hidden="true">
               <div className="brand-orbit" />
