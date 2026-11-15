@@ -19,9 +19,10 @@
 </p>
 
 <p align="center">
-  <a href="https://www.buymeacoffee.com/" target="_blank">
-    <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="45" />
-  </a>
+  <a href="public/qris/qris.png">
+    <img src="public/qris/qris.png" alt="Buy Me a Coffee - QRIS" width="220" />
+  </a><br/>
+  <sub>Scan QRIS untuk dukungan (Buy Me a Coffee)</sub>
 </p>
 
 ---
@@ -125,10 +126,10 @@ Aset ikon modern tersedia di:
 
 ## Dukungan
 
-Jika project ini bermanfaat, Anda bisa mendukung pengembang:
+Jika project ini bermanfaat, Anda bisa mendukung pengembang via QRIS:
 
-<a href="https://www.buymeacoffee.com/" target="_blank">
-  <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="45" />
+<a href="public/qris/qris.png">
+  <img src="public/qris/qris.png" alt="Buy Me a Coffee - QRIS" width="220" />
 </a>
 
 ## Lisensi
