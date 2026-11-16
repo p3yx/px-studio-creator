@@ -1,8 +1,8 @@
-"use client";
+﻿"use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, Sparkles, FolderKanban, Settings, User, Menu, X, Clapperboard, Wand2, AudioLines, Library, Volume2, Music, Captions, Scaling, Coffee } from "lucide-react";
+import { LayoutDashboard, Sparkles, FolderKanban, Settings, User, Menu, X, Clapperboard, Wand2, AudioLines, Library, Volume2, Music, Captions, Scaling, Coffee, Stamp } from "lucide-react";
 import { BrandLockup, PxLogoMark } from "@/components/brand";
 import { useState } from "react";
 
@@ -14,6 +14,7 @@ const nav = [
   { href: "/ai-studio/prompt-editor", label: "Prompt Editor", icon: Wand2 },
   { href: "/ai-studio/auto-caption", label: "Auto Caption", icon: Captions },
   { href: "/ai-studio/convert-resize", label: "Convert & Resize", icon: Scaling },
+  { href: "/ai-studio/watermark", label: "Watermark", icon: Stamp },
   { href: "/ai-studio/add-audio", label: "Tambah Suara ke Video", icon: Music },
   { href: "/ai-studio/audio-extractor", label: "Audio Extractor", icon: AudioLines },
   { href: "/ai-studio/text-to-speech", label: "Text to Speech", icon: Volume2 },
