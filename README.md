@@ -18,13 +18,6 @@
   <img alt="FFmpeg" src="https://img.shields.io/badge/FFmpeg-Rendering-007808?logo=ffmpeg&logoColor=white" />
 </p>
 
-<p align="center">
-  <a href="public/qris/qris.png">
-    <img src="public/qris/qris.png" alt="Buy Me a Coffee - QRIS" width="220" />
-  </a><br/>
-  <sub>Scan QRIS untuk dukungan (Buy Me a Coffee)</sub>
-</p>
-
 ---
 
 **PX STUDIO CREATOR** adalah platform AI video editing & creative studio berbasis **Next.js (App Router)** untuk menggabungkan clip, menyusun montage, mengekstrak/mengelola audio, menganalisis beat musik, membuat caption/TTS, dan merender video secara nyata menggunakan **FFmpeg** + background worker.
