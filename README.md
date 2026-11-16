@@ -96,6 +96,27 @@ px studio where   # tampilkan lokasi instalasi
 ```
 Buka: `http://localhost:3000`
 
+### Instalasi & Aplikasi via EXE (Windows)
+
+Repo ini menyertakan proyek dan hasil build **launcher/setup EXE** (Windows, .NET 6) di `windows/` dan `windows/release/`:
+
+- **`PXStudio-Setup.exe`** — setup per pengguna: menyalin app ke `%USERPROFILE%\px-studio`, menjalankan `npm install` / `db:generate` / `db:push` / `build` / `npm link`, dan mencoba membuat shortcut desktop.
+- **`PX Studio.exe`** — launcher aplikasi: menjalankan server (dari instalasi user) dan membuka `http://localhost:3000`.
+
+**Prasyarat:** Node.js 20+ & npm, FFmpeg/FFprobe (sesuai kebutuhan), dan **.NET 6 Runtime** (untuk menjalankan EXE framework-dependent). `.env` sebaiknya disiapkan sebelum setup.
+
+**Cara pakai (paket sumber):**
+1. Siapkan paket yang berisi source project (`package.json`, `src/`, dll.) bersama file EXE dari `windows/release/` (salin `PXStudio-Setup.exe`, `PXStudio-Setup.dll`, `PXStudio-Setup.deps.json`, `PXStudio-Setup.runtimeconfig.json`, dan file launcher `PX Studio.*` ke folder paket/root project).
+2. Jalankan **`PXStudio-Setup.exe`** dari folder paket tersebut. Setup akan menginstal ke `%USERPROFILE%\px-studio`.
+3. Jalankan **`PX Studio.exe`** (atau shortcut "PX Studio" di Desktop, jika dibuat) untuk membuka aplikasi. Anda juga tetap bisa memakai `px studio start` dari terminal mana saja.
+
+**Build ulang EXE (jika mengubah source launcher/setup):**
+```bash
+dotnet publish windows/PXStudio.Launcher/PXStudio.Launcher.csproj -c Release
+dotnet publish windows/PXStudio.Setup/PXStudio.Setup.csproj -c Release
+```
+Hasil publish ada di `windows/PXStudio.Launcher/bin/Release/net6.0/publish/` dan `windows/PXStudio.Setup/bin/Release/net6.0/publish/` (salin ke `windows/release/` bila perlu). Untuk membuat EXE **self-contained** (tanpa .NET Runtime terpasang) diperlukan runtime packs .NET yang sesuai saat publish (`--self-contained true -r win-x64`).
+
 ### Instalasi manual (dari folder project)
 Jika tidak ingin instalasi ke folder pengguna, Anda tetap bisa menjalankan dari folder project:
 ```bash

@@ -31,3 +31,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# windows exe build artifacts (keep windows/release and source)
+windows/**/bin/
+windows/**/obj/
