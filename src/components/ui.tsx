@@ -33,10 +33,12 @@ export function Select({ className, children, value, onChange, disabled, name }:
     const out: SelectOption[] = [];
     React.Children.forEach(children, (child) => {
       if (!React.isValidElement(child)) return;
-      if ((child.type as any) === "option" || (child as any).props?.value !== undefined) {
-        const props: any = (child as any).props || {};
-        out.push({ value: String(props.value ?? ""), label: props.children, disabled: !!props.disabled });
-      }
+      const props: any = (child as any).props || {};
+      const isOption = (child.type as any) === "option" || (child as any).type === "option" || props.value !== undefined || props.children !== undefined;
+      if (!isOption) return;
+      const label = props.children;
+      const rawValue = props.value ?? (typeof label === "string" || typeof label === "number" ? label : "");
+      out.push({ value: String(rawValue), label, disabled: !!props.disabled });
     });
     return out;
   }, [children]);
