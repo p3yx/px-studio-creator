@@ -63,54 +63,52 @@
 
 ## Instalasi & Menjalankan
 
-1. **Clone & install dependencies**
+### Instalasi per pengguna (disarankan — bisa dijalankan dari mana saja)
+
+Saat instalasi pertama, aplikasi akan disalin ke folder pengguna (Windows: `%USERPROFILE%\px-studio`, Linux/macOS: `~/px-studio`) dan perintah `px` didaftarkan global, jadi Anda **tidak perlu selalu membuka folder project**.
+
+1. **Clone/download source** (sekali saja, mis. ke Desktop/Downloads)
    ```bash
    git clone https://github.com/p3yx/px-studio-creator.git px-studio
    cd px-studio
    npm install
    ```
    > Anda bisa mengganti nama folder menjadi `px-studio` (atau nama lain) agar mudah dikenali.
-2. **Siapkan environment**
+2. **Siapkan environment (opsional tapi disarankan sebelum install user)**
    ```bash
    copy .env.example .env
    ```
-   Atur minimal `AUTH_SECRET`. Konfigurasi gateway AI (9Router) dan path tool (FFmpeg/yt-dlp) melalui `.env` sesuai kebutuhan.
-3. **Inisialisasi database & Prisma client**
+   Atur minimal `AUTH_SECRET`. Konfigurasi gateway AI (9Router) dan path tool (FFmpeg/yt-dlp) melalui `.env` sesuai kebutuhan. (File `.env` akan ikut disalin saat instalasi user.)
+3. **Jalankan instalasi ke folder pengguna & daftarkan perintah global**
    ```bash
-   npm run db:generate
-   npm run db:push
+   npx -y node bin/px.js studio install
+   # atau (setelah npm install): node bin/px.js studio install
    ```
-4. **Build aplikasi (untuk mode production)**
-   ```bash
-   npm run build
-   ```
+   Perintah ini menyalin app ke folder pengguna, menjalankan install/generate/build, dan `npm link` sehingga `px` bisa dipanggil dari mana saja.
 
-### Jalankan aplikasi
-
-- **Dari folder project (cara biasa)**
-  ```bash
-  npm run dev
-  # atau production
-  npm run build
-  npm run start
-  ```
-- **Perintah global (tanpa masuk folder project)**
-  Setelah instalasi selesai, daftarkan CLI global sekali dari folder project:
-  ```bash
-  npm link
-  # atau: npm install -g .
-  ```
-  Setelah itu Anda bisa membuka terminal/CMD/PowerShell di mana saja dan menjalankan:
-  ```bash
-  px studio start   # production (butuh build)
-  px studio dev     # development
-  px studio build   # build
-  px studio worker  # worker saja
-  ```
-
+Setelah itu, buka terminal/CMD/PowerShell **di mana saja** dan jalankan:
+```bash
+px studio start   # production (butuh build)
+px studio dev     # development
+px studio build   # build ulang
+px studio worker  # worker saja
+px studio where   # tampilkan lokasi instalasi
+```
 Buka: `http://localhost:3000`
 
-> **Catatan:** background worker otomatis aktif saat server berjalan (Node runtime). Opsi manual: `npm run worker` atau `px studio worker`. Jika folder project dipindah/disalin, jalankan ulang `npm link` (atau `npm install -g .`) dari lokasi baru dan lakukan `npm run db:generate && npm run build` bila diperlukan.
+### Instalasi manual (dari folder project)
+Jika tidak ingin instalasi ke folder pengguna, Anda tetap bisa menjalankan dari folder project:
+```bash
+npm install
+copy .env.example .env
+npm run db:generate
+npm run db:push
+npm run build
+npm start
+```
+Atau daftarkan CLI global dari folder tersebut: `npm link` (lalu `px studio start`).
+
+> **Catatan:** background worker otomatis aktif saat server berjalan (Node runtime). Opsi manual: `npm run worker` atau `px studio worker`. Jika instalasi user perlu diperbarui setelah mengubah source, jalankan kembali `node bin/px.js studio install` dari source (atau perbarui di folder instalasi lalu `px studio build`). Pada beberapa sistem, `npm link` saat instalasi mungkin memerlukan hak akses tambahan.
 
 ## Konfigurasi Penting (`.env`)
 
