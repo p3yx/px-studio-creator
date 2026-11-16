@@ -65,10 +65,11 @@
 
 1. **Clone & install dependencies**
    ```bash
-   git clone https://github.com/p3yx/px-studio-creator.git
-   cd px-studio-creator
+   git clone https://github.com/p3yx/px-studio-creator.git px-studio
+   cd px-studio
    npm install
    ```
+   > Anda bisa mengganti nama folder menjadi `px-studio` (atau nama lain) agar mudah dikenali.
 2. **Siapkan environment**
    ```bash
    copy .env.example .env
@@ -79,16 +80,37 @@
    npm run db:generate
    npm run db:push
    ```
-4. **Jalankan aplikasi**
+4. **Build aplikasi (untuk mode production)**
    ```bash
-   npm run dev
-   # atau production
    npm run build
-   npm run start
    ```
-   Buka: `http://localhost:3000`
 
-> **Catatan:** background worker otomatis aktif saat server berjalan (Node runtime). Opsi manual: `npm run worker`.
+### Jalankan aplikasi
+
+- **Dari folder project (cara biasa)**
+  ```bash
+  npm run dev
+  # atau production
+  npm run build
+  npm run start
+  ```
+- **Perintah global (tanpa masuk folder project)**
+  Setelah instalasi selesai, daftarkan CLI global sekali dari folder project:
+  ```bash
+  npm link
+  # atau: npm install -g .
+  ```
+  Setelah itu Anda bisa membuka terminal/CMD/PowerShell di mana saja dan menjalankan:
+  ```bash
+  px studio start   # production (butuh build)
+  px studio dev     # development
+  px studio build   # build
+  px studio worker  # worker saja
+  ```
+
+Buka: `http://localhost:3000`
+
+> **Catatan:** background worker otomatis aktif saat server berjalan (Node runtime). Opsi manual: `npm run worker` atau `px studio worker`. Jika folder project dipindah/disalin, jalankan ulang `npm link` (atau `npm install -g .`) dari lokasi baru dan lakukan `npm run db:generate && npm run build` bila diperlukan.
 
 ## Konfigurasi Penting (`.env`)
 
