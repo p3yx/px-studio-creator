@@ -1,2 +1,2 @@
-import AuthForm from "../login/auth-form";
-export default function RegisterPage() { return <AuthForm mode="register" />; }
+﻿import { redirect } from "next/navigation";
+export default function RegisterPage() { redirect("/dashboard"); }
