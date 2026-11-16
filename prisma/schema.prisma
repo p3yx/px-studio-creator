@@ -1,0 +1,240 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum ProjectStatus {
+  DRAFT
+  UPLOADED
+  WAITING
+  ANALYZING
+  FINDING_HIGHLIGHTS
+  GENERATING_SUBTITLES
+  RENDERING
+  COMPLETED
+  FAILED
+}
+
+enum JobStatus {
+  WAITING
+  ANALYZING
+  FINDING_HIGHLIGHTS
+  GENERATING_SUBTITLES
+  RENDERING
+  COMPLETED
+  FAILED
+}
+
+model User {
+  id           String       @id @default(cuid())
+  email        String       @unique
+  name         String?
+  passwordHash String?
+  role         Role         @default(USER)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  projects     Project[]
+  sessions     Session[]
+  audioAssets  AudioAsset[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model Project {
+  id              String         @id @default(cuid())
+  userId          String
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name            String
+  description     String?
+  type            String         @default("clip") // clip | montage
+  status          ProjectStatus  @default(DRAFT)
+  sourceFileName  String?
+  sourcePath      String?
+  sourceDuration  Float?
+  sourceSize      Int?
+  sourceWidth     Int?
+  sourceHeight    Int?
+  thumbnailPath        String?
+  thumbnailTimestamp   Float?
+  thumbnailStatus      String?        @default("pending") // pending | ready | failed
+  thumbnailGeneratedAt DateTime?
+  outputPath      String?
+  outputDuration  Float?
+  outputSize      Int?
+  outputWidth     Int?
+  outputHeight    Int?
+  configJson      String?        // clip config / montage config
+  errorMessage    String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  clips           Clip[]
+  jobs            Job[]
+  montageAssets   MontageAsset[]
+}
+
+model Clip {
+  id            String   @id @default(cuid())
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title         String
+  description   String?
+  category      String?
+  startTime     Float
+  endTime       Float
+  duration      Float
+  relevance     Float?
+  reason        String?
+  aspectRatio   String?
+  resolution    String?
+  fileSize      Int?
+  outputPath    String?
+  thumbnailPath String?
+  subtitlePath  String?
+  status        String   @default("pending") // pending, rendering, completed, failed
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Job {
+  id          String    @id @default(cuid())
+  projectId   String
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  type        String    @default("generate")
+  status      JobStatus @default(WAITING)
+  progress    Int       @default(0)
+  stage       String    @default("Waiting")
+  logs        String?
+  payloadJson String?
+  resultJson  String?
+  error       String?
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model MontageAsset {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  kind        String   @default("video") // video | music
+  name        String
+  filePath    String
+  duration    Float?
+  width       Int?
+  height      Int?
+  fileSize    Int?
+  hasAudio    Boolean  @default(false)
+  thumbnailPath String?
+  order       Int      @default(0)
+  trimStart   Float    @default(0)
+  trimEnd     Float?
+  metaJson    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AudioAsset {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
+  format        String
+  filePath      String
+  duration      Float?
+  fileSize      Int?
+  sourceName    String?
+  sourceProjectId String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model AiProvider {
+  id             String       @id @default(cuid())
+  name           String
+  type           String       // google_gemini | openai | anthropic | groq | openrouter | openai_compatible | custom
+  baseUrl        String?
+  encryptedApiKey String?
+  enabled        Boolean      @default(true)
+  isDefault      Boolean      @default(false)
+  configJson     String?      // timeout, retries, temperature, maxTokens, adapter, etc.
+  lastTestStatus String?
+  lastTestError  String?
+  lastTestedAt   DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  models         AiModel[]
+  taskRoutes     AiTaskRoute[] @relation("TaskProvider")
+  fallbackRoutes AiTaskRoute[] @relation("TaskFallback")
+  usageLogs      AiUsageLog[]
+}
+
+model AiModel {
+  id          String     @id @default(cuid())
+  providerId  String
+  provider    AiProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  modelId     String
+  label       String?
+  capabilities String?   // json array: text,vision,image_input,audio_input,stt,structured_output,tool_calling
+  isDefault   Boolean    @default(false)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  taskRoutes  AiTaskRoute[]
+
+  @@unique([providerId, modelId])
+}
+
+model AiTaskRoute {
+  id                 String      @id @default(cuid())
+  task               String      @unique // prompt_understanding, editing_plan, vision_analysis, highlight_detection, speech_to_text, translation, audio_analysis, metadata_generation, default_text, default_vision, default_stt, default_audio
+  providerId         String?
+  provider           AiProvider? @relation("TaskProvider", fields: [providerId], references: [id], onDelete: SetNull)
+  modelId            String?
+  model              AiModel?    @relation(fields: [modelId], references: [id], onDelete: SetNull)
+  fallbackProviderId String?
+  fallbackProvider   AiProvider? @relation("TaskFallback", fields: [fallbackProviderId], references: [id], onDelete: SetNull)
+  fallbackEnabled    Boolean     @default(false)
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+}
+
+model AiUsageLog {
+  id           String      @id @default(cuid())
+  providerId   String?
+  provider     AiProvider? @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  model        String?
+  task         String?
+  success      Boolean     @default(false)
+  status       String?     // success | auth_failed | invalid_endpoint | model_not_found | unsupported | rate_limited | timeout | error
+  tokensIn     Int?
+  tokensOut    Int?
+  tokensTotal  Int?
+  cost         Float?
+  durationMs   Int?
+  usedFallback Boolean     @default(false)
+  errorMessage String?
+  createdAt    DateTime    @default(now())
+}
