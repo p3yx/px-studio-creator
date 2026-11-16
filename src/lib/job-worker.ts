@@ -9,6 +9,7 @@ import { buildMontagePlan, renderMontage } from "./montage";
 import { downloadYouTubeVideo, isYouTubeUrl } from "./youtube";
 import { renderBeatSync } from "./beat/beat-render";
 import { getBrandKit, loudnormFilter } from "./brand";
+import { renderSoftBlurRemoval, renderSmartCropRemoval, renderAiInpaintingRemoval } from "./watermark-remover";
 
 async function getSetting(key: string, envKey?: string) {
   const row = await prisma.setting.findUnique({ where: { key } }).catch(() => null);
@@ -315,6 +316,60 @@ async function processConvertResizeJob(job: any) {
   await updateJob(job.id, { status: "COMPLETED", stage: "Completed", progress: 100, finishedAt: new Date(), resultJson: JSON.stringify({ outputPath: outPath, duration, aspect, fit }) });
 }
 
+async function processWatermarkRemoveJob(job: any) {
+  const project = await prisma.project.findUnique({ where: { id: job.projectId } });
+  if (!project) throw new Error("Project missing");
+  await ensureProjectDirs(project.id);
+  const payload = safeJsonParse(job.payloadJson, {} as any);
+  if (!project.sourcePath) throw new Error("Source video missing");
+  const method = String(payload.method || "soft_blur");
+  const regions = Array.isArray(payload.regions) ? payload.regions : [];
+  const cropRect = payload.cropRect || null;
+  const blurStrength = Number(payload.blurStrength ?? 12);
+  const delogoBand = Number(payload.delogoBand ?? 4);
+
+  await updateJob(job.id, { status: "RENDERING", stage: "Preparing", progress: 5, startedAt: job.startedAt || new Date(), error: null });
+  await updateProject(project.id, { status: "RENDERING", errorMessage: null });
+
+  const outDir = clipsDir(project.id);
+  await fs.mkdir(outDir, { recursive: true });
+  const work = tempDir(project.id);
+  await fs.mkdir(work, { recursive: true });
+  const safe = String(payload.name || "watermark-removed").replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 60) || "watermark-removed";
+  const outPath = path.join(outDir, `${Date.now()}-${safe}.mp4`);
+
+  await updateJob(job.id, { stage: method === "ai_inpainting" ? "AI Inpainting" : method === "smart_crop" ? "Smart Crop" : "Soft Blur", progress: 20, status: "RENDERING" as any });
+  if (method === "ai_inpainting") {
+    await renderAiInpaintingRemoval({ input: project.sourcePath, output: outPath, regions, workDir: work });
+  } else if (method === "smart_crop") {
+    await renderSmartCropRemoval({ input: project.sourcePath, output: outPath, regions, cropRect });
+  } else {
+    await renderSoftBlurRemoval({ input: project.sourcePath, output: outPath, regions, blurStrength, band: delogoBand });
+  }
+
+  await updateJob(job.id, { stage: "Finalizing", progress: 92, status: "RENDERING" as any });
+  let duration: number | null = null, width: number | null = null, height: number | null = null;
+  try { const info = await probeVideo(outPath); duration = info.duration || null; width = info.width || null; height = info.height || null; } catch {}
+  const st = await fs.stat(outPath).catch(() => null);
+
+  await prisma.clip.deleteMany({ where: { projectId: project.id } });
+  await prisma.clip.create({
+    data: {
+      projectId: project.id,
+      title: project.name || "Watermark Removed",
+      description: `Watermark removal (${method})`,
+      category: "watermark-remover",
+      startTime: 0, endTime: duration || 0, duration: duration || 0,
+      relevance: 100, reason: `method=${method}`,
+      resolution: width && height ? `${width}x${height}` : null,
+      fileSize: st?.size || null, outputPath: outPath, status: "completed",
+    } as any,
+  });
+
+  await updateProject(project.id, { status: "COMPLETED", outputPath: outPath, outputDuration: duration || null, outputSize: st?.size || null, outputWidth: width, outputHeight: height, errorMessage: null } as any);
+  await updateJob(job.id, { status: "COMPLETED", stage: "Completed", progress: 100, finishedAt: new Date(), resultJson: JSON.stringify({ outputPath: outPath, duration, width, height, method }) });
+}
+
 async function processJob(job: any) {
   const project = await prisma.project.findUnique({ where: { id: job.projectId }, include: { clips: true } });
   if (!project) throw new Error("Project missing");
@@ -330,6 +385,9 @@ async function processJob(job: any) {
   }
   if (p.type === "convert-resize" || job.type === "convert_resize") {
     return processConvertResizeJob(job);
+  }
+  if (p.type === "watermark-remover" || job.type === "watermark_remove") {
+    return processWatermarkRemoveJob(job);
   }
   await ensureProjectDirs(project.id);
   const config = safeJsonParse(project.configJson, { duration: 30, quantity: 3, mode: "Best Moments", prompt: "", aspect: "9:16", style: "Cinematic Anime" });
