@@ -9,8 +9,7 @@ export default function Home() {
       <header className="relative z-10 flex items-center justify-between px-6 lg:px-12 h-20 border-b border-white/10 bg-[#10121B]/70 backdrop-blur-md">
         <BrandLockup />
         <nav className="flex items-center gap-2 sm:gap-3 text-sm">
-          <Link href="/login" className="text-zinc-300 hover:text-white px-3 py-2 rounded-lg hover:bg-white/5 transition">Login</Link>
-          <Link href="/register" className="btn-primary h-10 px-4 rounded-xl font-medium inline-flex items-center justify-center">Get Started</Link>
+          <Link href="/dashboard" className="btn-primary h-10 px-4 rounded-xl font-medium inline-flex items-center justify-center">Open Dashboard</Link>
         </nav>
       </header>
       <main className="relative z-10 px-6 lg:px-12 py-16 sm:py-20 lg:py-24 max-w-7xl mx-auto page-enter">
