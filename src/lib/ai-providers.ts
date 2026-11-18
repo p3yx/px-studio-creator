@@ -57,36 +57,35 @@ export const PROVIDER_PRESETS: Array<{ type: ProviderType; name: string; baseUrl
   { type: "custom_gateway", name: "Custom Gateway (OpenAI-compatible)", baseUrl: "", models: [] },
 ];
 
-export const BUILTIN_PROVIDER_ID = "builtin-9router";
+export const EMPTY_PROVIDER: ProviderConfig = {
+  id: "",
+  name: "Belum ada provider",
+  type: "custom_gateway",
+  baseUrl: "",
+  apiKey: "",
+  enabled: false,
+  createdAt: "",
+};
 
 function presetFor(type: string) {
   return PROVIDER_PRESETS.find(p => p.type === type);
 }
 
 export async function listProviders(): Promise<ProviderConfig[]> {
-  const builtin: ProviderConfig = {
-    id: BUILTIN_PROVIDER_ID,
-    name: "9Router (gateway bawaan)",
-    type: "custom_gateway",
-    baseUrl: getGatewayConfig().baseUrl,
-    apiKey: "••••••••",
-    enabled: true,
-    createdAt: "",
-  };
   const raw = await getSetting("aiProvidersConfig");
   let saved: ProviderConfig[] = [];
   try { saved = raw ? JSON.parse(raw) : []; } catch { saved = []; }
-  return [builtin, ...(Array.isArray(saved) ? saved : [])];
+  return Array.isArray(saved) ? saved : [];
 }
 
 export async function getProvider(id?: string | null): Promise<ProviderConfig> {
   const explicit = String(id || "").trim();
-  const target = explicit || String((await getSetting("aiActiveProvider")) || BUILTIN_PROVIDER_ID);
+  const target = explicit || String((await getSetting("aiActiveProvider")) || "");
   const all = await listProviders();
-  const found = all.find(p => p.id === target);
+  const found = target ? all.find(p => p.id === target) : all[0];
   if (found) return found;
   if (explicit) throw new Error(`Provider tidak ditemukan: ${target}`);
-  return all[0];
+  return EMPTY_PROVIDER;
 }
 
 export async function upsertProvider(input: Partial<ProviderConfig> & { id?: string }): Promise<ProviderConfig> {
@@ -112,13 +111,15 @@ export async function upsertProvider(input: Partial<ProviderConfig> & { id?: str
 }
 
 export async function deleteProviderImpl(id: string) {
-  if (id === BUILTIN_PROVIDER_ID) throw new Error("Provider bawaan tidak bisa dihapus.");
   const raw = await getSetting("aiProvidersConfig");
   let saved: ProviderConfig[] = [];
   try { saved = raw ? JSON.parse(raw) : []; } catch { saved = []; }
   saved = saved.filter(p => p.id !== id);
   await setSetting("aiProvidersConfig", JSON.stringify(saved));
-  if ((await getSetting("aiActiveProvider")) === id) await setSetting("aiActiveProvider", BUILTIN_PROVIDER_ID);
+  if ((await getSetting("aiActiveProvider")) === id) {
+    await setSetting("aiActiveProvider", "");
+    await setSetting("aiSelectedModel", "");
+  }
   return { ok: true };
 }
 
@@ -147,7 +148,7 @@ export async function getActiveModelId(): Promise<string> {
   const saved = String((await getSetting("aiSelectedModel")) || "").trim();
   if (saved) return saved;
   const provider = await getProvider();
-  if (provider.id === BUILTIN_PROVIDER_ID) return getGatewayConfig().defaultModel;
+  if (!provider.id) return "";
   const cacheKey = `aiModels:${provider.id}`;
   try {
     const cached = JSON.parse(String(await getSetting(cacheKey) || "[]"));
@@ -219,25 +220,23 @@ export async function listGatewayModels(opts?: { refresh?: boolean }) {
 }
 
 export async function getAISettings() {
-  const { baseUrl, defaultModel } = getGatewayConfig();
   const selectedModel = await getActiveModelId();
   const lastUpdated = await getSetting("aiModelsLastUpdated");
   const lastStatus = await getSetting("aiGatewayLastStatus");
   const lastError = await getSetting("aiGatewayLastError");
   const provider = await getProvider();
-  const providerCache = await getSetting(`aiModels:${provider.id}`);
-  const cached = providerCache || (provider.id === BUILTIN_PROVIDER_ID ? await getSetting("aiAvailableModels") : null);
+  const cached = provider.id ? await getSetting(`aiModels:${provider.id}`) : null;
   let models: string[] = [];
   try { models = cached ? JSON.parse(cached) : []; } catch { models = []; }
   return {
     gateway: provider.name,
-    providerId: provider.id,
+    providerId: provider.id || null,
     providerType: provider.type,
     providers: await listProviders(),
-    baseUrlConfigured: !!baseUrl || !!provider.baseUrl,
+    baseUrlConfigured: !!provider.baseUrl,
     activeModel: selectedModel || null,
-    defaultModel: defaultModel || null,
-    connectionStatus: lastStatus || "unknown",
+    defaultModel: null,
+    connectionStatus: !provider.id ? "no_provider" : (lastStatus || "unknown"),
     connectionError: lastError || null,
     lastUpdated: lastUpdated || null,
     models,
@@ -262,6 +261,7 @@ export async function saveAISettings(input: { model?: string }) {
 
 export async function testAIConnection(modelOverride?: string) {
   const provider = await getProvider();
+  if (!provider.id) return { ok: false, status: "no_provider", error: "Belum ada provider. Tambahkan provider di Settings." };
   const model = String(modelOverride || (await getActiveModelId()) || "").trim();
   const start = Date.now();
   try {
@@ -387,22 +387,21 @@ async function anthropicChat(baseUrl: string, apiKey: string, modelId: string, m
 }
 
 async function chatCompletionRaw(modelId: string, messages: any[], opts: any = {}) {
-  if (!modelId) throw new Error("AI model is not configured. Pilih model AI di Settings.");
   const provider = await getProvider();
-  const gw = getGatewayConfig();
-  const isBuiltin = provider.id === BUILTIN_PROVIDER_ID;
-  const baseUrl = cleanBaseUrl(isBuiltin ? gw.baseUrl : provider.baseUrl);
-  const apiKey = String(isBuiltin ? gw.apiKey : provider.apiKey);
+  if (!provider.id) throw new Error("Belum ada provider AI. Tambahkan provider di Settings.");
+  if (!modelId) throw new Error("AI model belum dipilih. Pilih model di Settings.");
+  const baseUrl = cleanBaseUrl(provider.baseUrl);
+  const apiKey = String(provider.apiKey);
   if (!baseUrl) throw new Error("Provider belum dikonfigurasi (Base URL kosong).");
   if (provider.type === "google_gemini") return geminiChat(baseUrl, apiKey, modelId, messages, opts);
   if (provider.type === "anthropic") return anthropicChat(baseUrl, apiKey, modelId, messages, opts);
   return openAICompatibleChat(baseUrl, apiKey, modelId, messages, opts);
 }
 
-export async function listModelsForActiveProvider() {
-  const provider = await getProvider();
+export async function listModelsForProvider(id?: string | null) {
+  const provider = await getProvider(id);
+  if (!provider.id) return { models: [], lastUpdated: null, fromCache: true, noProvider: true };
   const presetModels = presetFor(provider.type)?.models || [];
-  if (provider.id === BUILTIN_PROVIDER_ID) return listGatewayModels();
   const baseUrl = cleanBaseUrl(provider.baseUrl);
   const cacheKey = `aiModels:${provider.id}`;
   if (!baseUrl) {
@@ -439,6 +438,10 @@ export async function listModelsForActiveProvider() {
     if (models.length) await setSetting(cacheKey, JSON.stringify(models));
     return { models, lastUpdated: await getSetting("aiModelsLastUpdated"), fromCache: true, preset: presetModels.length > 0, error: e?.message || "Failed to fetch models" };
   }
+}
+
+export async function listModelsForActiveProvider() {
+  return listModelsForProvider();
 }
 
 /**
@@ -535,18 +538,16 @@ export async function autoDetectActiveModel() {
 
 // Keep compatible signatures used by existing features
 export async function resolveTaskConfig(task: TaskKey | string) {
-  const gw = getGatewayConfig();
   const provider = await getProvider();
   const modelId = await getActiveModelId();
-  const isBuiltin = provider.id === BUILTIN_PROVIDER_ID;
   return {
     legacy: false,
     provider: {
       id: provider.id,
       name: provider.name,
       type: provider.type,
-      baseUrl: isBuiltin ? gw.baseUrl : (provider.baseUrl || gw.baseUrl),
-      encryptedApiKey: isBuiltin ? gw.apiKey : provider.apiKey || null,
+      baseUrl: provider.baseUrl,
+      encryptedApiKey: provider.apiKey || null,
       configJson: JSON.stringify({ timeout: 45000 }),
     },
     model: { id: "active-model", modelId: modelId || "" },

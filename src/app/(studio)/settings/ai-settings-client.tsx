@@ -31,6 +31,7 @@ type Preset = { type: string; name: string; baseUrl: string; models: string[] };
 
 function statusLabel(s?: string | null) {
   if (!s || s === "unknown") return "Unknown";
+  if (s === "no_provider") return "Belum ada provider";
   if (s === "connected") return "Connected";
   if (s === "auth_failed") return "Authentication Failed";
   if (s === "gateway_unavailable") return "Gateway Unavailable";
@@ -331,6 +332,11 @@ export default function AiSettingsClient() {
         ), document.body)}
 
         <div className="space-y-2">
+          {providers.length === 0 && (
+            <div className="text-xs text-amber-200 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
+              Belum ada provider. Klik <b>+ Tambah Provider</b> untuk menambahkan API resmi (Gemini, OpenAI, Claude, Groq, OpenRouter) atau Custom Gateway. Provider pertama yang ditambahkan otomatis dipakai secara global.
+            </div>
+          )}
           {providers.map(p=>{
             const active = p.id === data?.providerId;
             const busy = providerBusy === p.id;
@@ -344,7 +350,7 @@ export default function AiSettingsClient() {
                   <button type="button" onClick={()=>onProviderAction(p.id,"models")} disabled={busy} className="text-[11px] px-2 h-7 rounded-md border border-white/10 bg-white/[0.03] hover:bg-white/[0.08] disabled:opacity-40">Model</button>
                   <button type="button" onClick={()=>onProviderAction(p.id,"test")} disabled={busy} className="text-[11px] px-2 h-7 rounded-md border border-white/10 bg-white/[0.03] hover:bg-white/[0.08] disabled:opacity-40">Test</button>
                   {!active && <button type="button" onClick={()=>onProviderAction(p.id,"activate")} disabled={busy} className="text-[11px] px-2 h-7 rounded-md border border-violet-400/30 bg-violet-500/10 text-violet-200 hover:bg-violet-500/20 disabled:opacity-40">Aktifkan</button>}
-                  {p.id !== "builtin-9router" && <button type="button" onClick={()=>onProviderAction(p.id,"delete")} disabled={busy} className="text-[11px] px-2 h-7 rounded-md border border-red-500/25 bg-red-500/10 text-red-300 hover:bg-red-500/20 disabled:opacity-40">Hapus</button>}
+                  <button type="button" onClick={()=>onProviderAction(p.id,"delete")} disabled={busy} className="text-[11px] px-2 h-7 rounded-md border border-red-500/25 bg-red-500/10 text-red-300 hover:bg-red-500/20 disabled:opacity-40">Hapus</button>
                 </div>
               </div>
             );
