@@ -125,7 +125,14 @@ export async function deleteProviderImpl(id: string) {
 export async function setActiveProvider(id: string) {
   const provider = await getProvider(id);
   await setSetting("aiActiveProvider", provider.id);
-  return { ok: true, provider };
+  // Each provider owns its model list and active model. Switching provider must switch both.
+  let models: string[] = [];
+  try { models = (await listModelsForActiveProvider()).models; } catch {}
+  const current = String((await getSetting("aiSelectedModel")) || "").trim();
+  if (!models.includes(current) && models.length) await setSetting("aiSelectedModel", String(models[0]));
+  await setSetting("aiGatewayLastStatus", "unknown");
+  await setSetting("aiGatewayLastError", "");
+  return { ok: true, provider, models, selectedModel: String((await getSetting("aiSelectedModel")) || models[0] || "") };
 }
 
 async function getSetting(key: string) {
@@ -139,8 +146,14 @@ async function setSetting(key: string, value: string) {
 export async function getActiveModelId(): Promise<string> {
   const saved = String((await getSetting("aiSelectedModel")) || "").trim();
   if (saved) return saved;
-  const { defaultModel } = getGatewayConfig();
-  return defaultModel;
+  const provider = await getProvider();
+  if (provider.id === BUILTIN_PROVIDER_ID) return getGatewayConfig().defaultModel;
+  const cacheKey = `aiModels:${provider.id}`;
+  try {
+    const cached = JSON.parse(String(await getSetting(cacheKey) || "[]"));
+    if (Array.isArray(cached) && cached.length) return String(cached[0]);
+  } catch {}
+  return presetFor(provider.type)?.models?.[0] || "";
 }
 
 function authHeaders(apiKey: string, json = false): Record<string, string> {
@@ -211,10 +224,11 @@ export async function getAISettings() {
   const lastUpdated = await getSetting("aiModelsLastUpdated");
   const lastStatus = await getSetting("aiGatewayLastStatus");
   const lastError = await getSetting("aiGatewayLastError");
-  const cached = await getSetting("aiAvailableModels");
+  const provider = await getProvider();
+  const providerCache = await getSetting(`aiModels:${provider.id}`);
+  const cached = providerCache || (provider.id === BUILTIN_PROVIDER_ID ? await getSetting("aiAvailableModels") : null);
   let models: string[] = [];
   try { models = cached ? JSON.parse(cached) : []; } catch { models = []; }
-  const provider = await getProvider();
   return {
     gateway: provider.name,
     providerId: provider.id,
@@ -377,8 +391,8 @@ async function chatCompletionRaw(modelId: string, messages: any[], opts: any = {
   const provider = await getProvider();
   const gw = getGatewayConfig();
   const isBuiltin = provider.id === BUILTIN_PROVIDER_ID;
-  const baseUrl = cleanBaseUrl(isBuiltin ? gw.baseUrl : (provider.baseUrl || gw.baseUrl));
-  const apiKey = String(isBuiltin ? gw.apiKey : (provider.apiKey || gw.apiKey));
+  const baseUrl = cleanBaseUrl(isBuiltin ? gw.baseUrl : provider.baseUrl);
+  const apiKey = String(isBuiltin ? gw.apiKey : provider.apiKey);
   if (!baseUrl) throw new Error("Provider belum dikonfigurasi (Base URL kosong).");
   if (provider.type === "google_gemini") return geminiChat(baseUrl, apiKey, modelId, messages, opts);
   if (provider.type === "anthropic") return anthropicChat(baseUrl, apiKey, modelId, messages, opts);
@@ -389,8 +403,15 @@ export async function listModelsForActiveProvider() {
   const provider = await getProvider();
   const presetModels = presetFor(provider.type)?.models || [];
   if (provider.id === BUILTIN_PROVIDER_ID) return listGatewayModels();
-  const baseUrl = cleanBaseUrl(provider.baseUrl || getGatewayConfig().baseUrl);
-  if (!baseUrl) return { models: presetModels, lastUpdated: null, fromCache: true, preset: true };
+  const baseUrl = cleanBaseUrl(provider.baseUrl);
+  const cacheKey = `aiModels:${provider.id}`;
+  if (!baseUrl) {
+    try {
+      const cached = JSON.parse(String(await getSetting(cacheKey) || "[]"));
+      if (Array.isArray(cached) && cached.length) return { models: cached, lastUpdated: null, fromCache: true, preset: true };
+    } catch {}
+    return { models: presetModels, lastUpdated: null, fromCache: true, preset: true };
+  }
   const headers = provider.type === "google_gemini" ? {} : authHeaders(provider.apiKey);
   const url = provider.type === "google_gemini"
     ? `${baseUrl}/models?key=${encodeURIComponent(provider.apiKey)}`
@@ -404,6 +425,7 @@ export async function listModelsForActiveProvider() {
     let models = list.map((m: any) => String(m?.id || m?.name || "").filter(Boolean)).filter(Boolean) as string[];
     if (provider.type === "google_gemini") models = models.map((m: string) => m.replace(/^models\//, ""));
     const uniq = Array.from(new Set([...models, ...presetModels])).sort((a, b) => a.localeCompare(b));
+    await setSetting(cacheKey, JSON.stringify(uniq));
     await setSetting("aiAvailableModels", JSON.stringify(uniq));
     await setSetting("aiModelsLastUpdated", new Date().toISOString());
     await setSetting("aiGatewayLastStatus", "connected");
@@ -411,8 +433,10 @@ export async function listModelsForActiveProvider() {
     return { models: uniq, lastUpdated: new Date().toISOString(), fromCache: false };
   } catch (e: any) {
     let cached: string[] = [];
-    try { cached = JSON.parse(String(await getSetting("aiAvailableModels") || "[]")); } catch { cached = []; }
-    const models = Array.from(new Set([...presetModels, ...cached]));
+    try { cached = JSON.parse(String(await getSetting(cacheKey) || "[]")); } catch { cached = []; }
+    // Non-builtin providers must never inherit the gateway's shared model list.
+    const models = Array.from(new Set([...presetModels, ...cached])).sort((a, b) => a.localeCompare(b));
+    if (models.length) await setSetting(cacheKey, JSON.stringify(models));
     return { models, lastUpdated: await getSetting("aiModelsLastUpdated"), fromCache: true, preset: presetModels.length > 0, error: e?.message || "Failed to fetch models" };
   }
 }

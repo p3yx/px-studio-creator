@@ -1,5 +1,6 @@
 ﻿"use client";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Card, Button, Select, Badge, Toast } from "@/components/ui";
 import { ChevronDown, Check } from "lucide-react";
 
@@ -203,7 +204,13 @@ export default function AiSettingsClient() {
       const j = await res.json().catch(() => ({}));
       if (!res.ok || j.ok === false) throw new Error(j.error || "Aksi provider gagal");
       if (action === "models" && Array.isArray(j.models)) setModels(j.models);
-      await Promise.all([loadProviders(), loadSettings()]);
+      if (action === "activate") {
+        await loadModels(true).catch(() => {});
+        const s = await loadSettings();
+        setSelected(String(s.activeModel || ""));
+      } else {
+        await Promise.all([loadProviders(), loadSettings()]);
+      }
       setToast({ open: true, message: action === "test" ? "Koneksi provider berhasil." : `Provider ${action} berhasil.`, type: "success" });
     } catch (e: any) {
       setError(e?.message || "Aksi provider gagal");
@@ -224,6 +231,7 @@ export default function AiSettingsClient() {
       <div className="space-y-1">
         <div className="font-medium text-base">AI CONFIGURATION</div>
         <div className="text-sm text-zinc-400">Pilih model AI yang digunakan untuk seluruh fitur PX STUDIO CREATOR.</div>
+        <div className="text-xs text-violet-200 mt-1">Provider aktif global: <b>{data?.gateway || "-"}</b> · model &amp; koneksi mengikuti provider ini.</div>
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
@@ -273,7 +281,7 @@ export default function AiSettingsClient() {
           <Button type="button" variant="secondary" onClick={()=>setShowAdd(s=>!s)}>{showAdd ? "Tutup" : "+ Tambah Provider"}</Button>
         </div>
 
-        {showAdd && (
+        {showAdd && typeof document !== "undefined" && createPortal((
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onMouseDown={e=>{ if(e.target===e.currentTarget) setShowAdd(false); }}>
             <div className="w-full max-w-lg rounded-2xl border border-white/15 bg-[#14141a] p-5 space-y-4 shadow-2xl shadow-black/70">
               <div className="flex items-center justify-between">
@@ -320,7 +328,7 @@ export default function AiSettingsClient() {
             </div>
             </div>
           </div>
-        )}
+        ), document.body)}
 
         <div className="space-y-2">
           {providers.map(p=>{
