@@ -428,7 +428,7 @@ export async function listModelsForProvider(id?: string | null) {
     let data: any = null; try { data = text ? JSON.parse(text) : null; } catch { data = null; }
     if (!res.ok) throw new Error(data?.error?.message || data?.message || `Failed to fetch models (${res.status})`);
     const list = Array.isArray(data?.data) ? data.data : Array.isArray(data?.models) ? data.models : [];
-    let models = list.map((m: any) => String(m?.id || m?.name || "").filter(Boolean)).filter(Boolean) as string[];
+    let models = list.map((m: any) => String(m?.id || m?.name || "")).filter(Boolean) as string[];
     if (provider.type === "google_gemini") models = models.map((m: string) => m.replace(/^models\//, ""));
     const uniq = Array.from(new Set([...models, ...presetModels])).sort((a, b) => a.localeCompare(b));
     await setSetting(cacheKey, JSON.stringify(uniq));
