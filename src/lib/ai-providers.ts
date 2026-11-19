@@ -73,7 +73,7 @@ function presetFor(type: string) {
 
 function normalizeApiKey(raw: string) {
   let key = String(raw || "").trim();
-  key = key.replace(/^(api[\s_-]?key|key|token|secret)\s*[:=]\s*/i, "").trim();
+  key = key.replace(/^(api[\s_-]?key|api|key|token|secret|bearer)\s*[:=]?\s*/i, "").trim();
   key = key.replace(/^["'`]+|["'`]+$/g, "").trim();
   return key.split(/\s+/)[0] || "";
 }
