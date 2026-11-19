@@ -18,6 +18,28 @@ export default function AiVideoClient() {
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<Created>(null);
   const [analysis, setAnalysis] = useState<any>(null);
+  const [tab, setTab] = useState<"video" | "image">("video");
+  const [imagePrompt, setImagePrompt] = useState("Ilustrasi anime cinematic, seorang petarung berdiri di atas bukit saat matahari terbenam, detail tinggi.");
+  const [imageAspect, setImageAspect] = useState("1:1");
+  const [imageSize, setImageSize] = useState("1K");
+  const [imageBusy, setImageBusy] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [imageResult, setImageResult] = useState<{ url: string; projectId: string; model: string; size: number | null } | null>(null);
+
+  async function generateImage() {
+    if (!imagePrompt.trim()) { setImageError("Prompt gambar wajib diisi."); return; }
+    setImageBusy(true); setImageError(null); setImageResult(null);
+    try {
+      const r = await fetch("/api/ai-image/generate", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: imagePrompt, aspect: imageAspect, size: imageSize }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error || "Gagal membuat gambar");
+      setImageResult(j);
+    } catch (e: any) { setImageError(e.message || "Gagal membuat gambar"); }
+    finally { setImageBusy(false); }
+  }
 
   async function analyze() {
     setBusy(true); setError(null);
@@ -59,9 +81,14 @@ export default function AiVideoClient() {
 
   return (
     <div className="space-y-8 lg:space-y-10">
-      <PageHeader title="Buat Video dari AI & Gambar" description="Tulis prompt, unggah foto atau video, lalu hasilkan video ke dalam Project Workspace. Judul dan deskripsi dibantu AI aktif." />
+      <PageHeader title="Prompt AI" description="Buat gambar atau video dari prompt dengan model AI aktif. Hasil tersimpan di Project Workspace." />
+      <div className="flex gap-2 p-1 rounded-xl bg-white/[0.03] border border-white/10 w-fit">
+        <button type="button" onClick={()=>setTab("video")} className={`px-4 py-2 rounded-lg text-sm flex items-center gap-2 transition ${tab==="video" ? "bg-violet-600/30 text-violet-100 border border-violet-500/30" : "text-zinc-400 hover:text-zinc-200"}`}><Film size={14}/> Buat Video</button>
+        <button type="button" onClick={()=>setTab("image")} className={`px-4 py-2 rounded-lg text-sm flex items-center gap-2 transition ${tab==="image" ? "bg-violet-600/30 text-violet-100 border border-violet-500/30" : "text-zinc-400 hover:text-zinc-200"}`}><ImagePlus size={14}/> Buat Gambar</button>
+      </div>
       {error && <Card className="p-4 border-red-500/20 bg-red-500/10 text-red-300 text-sm">{error}</Card>}
 
+      {tab === "video" && (
       <div className="grid xl:grid-cols-[1.2fr_.8fr] gap-6 lg:gap-8 items-start">
         <Card className="p-5 sm:p-6 space-y-5">
           <div className="space-y-2">
@@ -124,6 +151,48 @@ export default function AiVideoClient() {
           </div>
         </Card>
       </div>
+      )}
+
+      {tab === "image" && (
+      <div className="grid xl:grid-cols-[1.1fr_.9fr] gap-6 lg:gap-8 items-start">
+        <Card className="p-5 sm:p-6 space-y-5">
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-zinc-300">Prompt Gambar</label>
+            <Textarea rows={7} value={imagePrompt} onChange={e=>setImagePrompt(e.target.value)} placeholder='Contoh: "Ilustrasi anime, ksatria melindungi desa dari badai, cinematic lighting, detail tinggi."' />
+            <div className="text-xs text-zinc-500">Dikirim ke model image Gemini aktif (mis. gemini-nano-banana-2.1) via Gemini Interactions API.</div>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div className="space-y-2"><label className="text-sm text-zinc-300">Rasio</label>
+              <Select value={imageAspect} onChange={e=>setImageAspect(e.target.value)}>
+                <option value="1:1">1:1 (Persegi)</option><option value="16:9">16:9 (Horizontal)</option><option value="9:16">9:16 (Vertikal)</option>
+                <option value="4:3">4:3</option><option value="3:4">3:4</option>
+              </Select>
+            </div>
+            <div className="space-y-2"><label className="text-sm text-zinc-300">Ukuran</label>
+              <Select value={imageSize} onChange={e=>setImageSize(e.target.value)}><option value="1K">1K</option><option value="2K">2K</option><option value="4K">4K</option></Select>
+            </div>
+          </div>
+          {imageError && <div className="rounded-xl border border-red-500/20 bg-red-500/10 text-red-300 text-sm p-3">{imageError}</div>}
+          <Button className="w-full" onClick={generateImage} disabled={imageBusy}><ImagePlus size={16}/> {imageBusy ? "Membuat gambar..." : "Buat Gambar"}</Button>
+        </Card>
+        <Card className="p-5 sm:p-6 space-y-4">
+          <div className="font-medium">Hasil Gambar</div>
+          {!imageResult ? (
+            <div className="text-sm text-zinc-500 py-12 text-center">Belum ada gambar. Isi prompt lalu klik <b>Buat Gambar</b>.</div>
+          ) : (
+            <div className="space-y-3">
+              <img src={imageResult.url || ""} alt="Hasil gambar AI" className="w-full rounded-xl border border-white/10" />
+              <div className="text-xs text-zinc-400">Model: <b>{imageResult.model}</b> · {imageResult.size ? `${Math.round(imageResult.size/1024)} KB` : "-"}</div>
+              <div className="flex gap-2">
+                <a href={imageResult.url || ""} download className="inline-flex items-center gap-2 px-4 h-9 rounded-lg bg-white/10 hover:bg-white/15 text-sm"><Film size={14}/> Download</a>
+                <Button variant="secondary" onClick={()=>router.push(`/projects/${imageResult.projectId}`)}>Buka Project</Button>
+              </div>
+            </div>
+          )}
+          <div className="text-xs text-zinc-500 border-t border-white/10 pt-3">Hasil disimpan otomatis sebagai project di workspace. Jika provider aktif bukan Gemini native, fitur ini tidak tersedia.</div>
+        </Card>
+      </div>
+      )}
     </div>
   );
 }
