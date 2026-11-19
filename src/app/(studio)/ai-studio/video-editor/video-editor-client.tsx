@@ -23,6 +23,9 @@ export default function VideoEditorClient() {
   const [busy, setBusy] = useState(false);
   const [agentCmd, setAgentCmd] = useState("");
   const [agentBusy, setAgentBusy] = useState(false);
+  const [library, setLibrary] = useState<{ videos: any[]; audios: any[] }>({ videos: [], audios: [] });
+  const [libTab, setLibTab] = useState<"media" | "audio">("media");
+  const [sourceProject, setSourceProject] = useState("");
   const [past, setPast] = useState<EditorTimeline[]>([]);
   const [future, setFuture] = useState<EditorTimeline[]>([]);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -86,6 +89,40 @@ export default function VideoEditorClient() {
     push({ ...timeline, tracks: timeline.tracks.map(t => t.id === track.id ? { ...t, clips: [...t.clips, clip] } : t) });
     setSelected(clip.id);
     setMsg("Teks ditambahkan. Atur di panel Properties.");
+  }
+
+  const loadLibrary = useCallback(async () => {
+    try {
+      const j = await fetch("/api/video-editor/library", { cache: "no-store" }).then(r => r.json());
+      if (j.ok) setLibrary({ videos: j.videos || [], audios: j.audios || [] });
+    } catch {}
+  }, []);
+  useEffect(() => { loadLibrary(); }, [loadLibrary]);
+
+  function addLibraryClip(item: any, kind: "video" | "audio") {
+    if (!timeline) return;
+    const track = timeline.tracks.find(t => t.type === (kind === "audio" ? "audio" : "video"))!;
+    const start = kind === "audio" ? playhead : track.clips.reduce((m, c) => Math.max(m, c.start + c.duration), 0);
+    const clip: EditorClip = {
+      id: uid(), name: item.name, path: item.path, sourceIn: 0, sourceOut: item.duration,
+      start, duration: item.duration, trackId: track.id, kind,
+    };
+    push({ ...timeline, tracks: timeline.tracks.map(t => t.id === track.id ? { ...t, clips: [...t.clips, clip] } : t) });
+    setSelected(clip.id);
+  }
+
+  async function openFromProject() {
+    if (!sourceProject.trim()) return;
+    setBusy(true); setMsg(null);
+    try {
+      const r = await fetch("/api/video-editor/from-project", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId: sourceProject.trim() }) });
+      const j = await r.json();
+      if (!r.ok || !j.ok) throw new Error(j.error || "Gagal membuka project");
+      setProjectId(j.projectId); setTimeline(j.timeline); setSelected(j.timeline.tracks[0]?.clips[0]?.id || null);
+      router.replace(`/ai-studio/video-editor?project=${j.projectId}`);
+      setMsg(`Project dibuka di editor dengan ${j.clips} clip.`);
+      loadLibrary();
+    } catch (e: any) { setMsg(e.message || "Gagal"); } finally { setBusy(false); }
   }
 
   async function addAsset(file: File, kind: "audio" | "video") {
@@ -297,7 +334,38 @@ export default function VideoEditorClient() {
           <Input value={agentCmd} onChange={e => setAgentCmd(e.target.value)} onKeyDown={e => { if (e.key === "Enter") runAgent(); }} placeholder='Contoh: "potong clip 1 di detik 5 lalu terapkan blur" / "tambah teks HALO di detik 2"' className="flex-1 min-w-[220px]" />
           <Button onClick={runAgent} disabled={agentBusy || !projectId || !agentCmd.trim()}><Sparkles size={15}/> {agentBusy ? "Memproses..." : "Jalankan Agent"}</Button>
         </div>
-        <div className="text-[11px] text-zinc-500">Tool: split, setSpeed, setEffect, addText, move, trim, delete, addKeyframe. Semua perubahan masuk undo & render.</div>
+        <div className="text-[11px] text-zinc-500">Tool: split, setSpeed, setEffect, addText, move, trim, delete, addKeyframe, duplicate, rippleDelete, setTransition, setTrack. Semua perubahan masuk undo & render.</div>
+      </Card>
+
+      <Card className="p-4 space-y-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <div className="text-sm font-medium">Media Library & Project Workspace</div>
+            <div className="text-[11px] text-zinc-500 mt-0.5">Asset dari project lain dipakai langsung — tidak upload ulang.</div>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <button type="button" onClick={()=>setLibTab("media")} className={`px-3 h-8 rounded-lg border text-xs ${libTab==="media" ? "border-violet-400/40 bg-violet-500/15 text-violet-200" : "border-white/10 text-zinc-400"}`}>Media ({library.videos.length})</button>
+            <button type="button" onClick={()=>setLibTab("audio")} className={`px-3 h-8 rounded-lg border text-xs ${libTab==="audio" ? "border-violet-400/40 bg-violet-500/15 text-violet-200" : "border-white/10 text-zinc-400"}`}>Audio ({library.audios.length})</button>
+          </div>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <Input value={sourceProject} onChange={e=>setSourceProject(e.target.value)} placeholder="Project ID dari AutoClip/Montage untuk dibuka di editor" className="flex-1 min-w-[220px]" />
+          <Button variant="secondary" onClick={openFromProject} disabled={busy || !sourceProject.trim()}>Buka Project di Editor</Button>
+        </div>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-52 overflow-y-auto">
+          {(libTab === "media" ? library.videos : library.audios).map((it: any) => (
+            <div key={it.id} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] p-2">
+              <div className="min-w-0 flex-1">
+                <div className="text-xs text-zinc-200 truncate">{it.name}</div>
+                <div className="text-[10px] text-zinc-500">{it.duration.toFixed(1)}s {it.projectName ? `· ${it.projectName}` : ""}</div>
+              </div>
+              <button type="button" onClick={()=>addLibraryClip(it, libTab === "audio" ? "audio" : "video")} disabled={!timeline} className="text-xs px-2 h-7 rounded-md border border-violet-400/30 bg-violet-500/10 text-violet-200 disabled:opacity-40">+</button>
+            </div>
+          ))}
+          {(libTab === "media" ? library.videos : library.audios).length === 0 && (
+            <div className="text-xs text-zinc-500 col-span-full">Belum ada asset. Hasil AutoClip, Montage, atau Audio Library akan muncul di sini.</div>
+          )}
+        </div>
       </Card>
 
       {!timeline ? (
