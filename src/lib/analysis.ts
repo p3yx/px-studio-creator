@@ -44,18 +44,13 @@ export async function analyzeVideoForHighlights(params: {
     frames = await extractFrames(videoPath, framesDir, { fps, maxFrames: 24 });
   } catch { frames = []; }
 
-  // Local-only mode: no STT/gateway calls.
+  // No STT: keep inference fully on the active provider (no legacy gateway calls).
   const transcriptSnippet = "";
 
   await params.onProgress?.("Finding Highlights", 55);
 
-  // Heuristic-only highlight selection: deterministic, offline, no model calls, no quota.
-  const desiredHeuristic = Math.max(1, Math.min(config.quantity || 3, 20));
-  const clipDurHeuristic = Math.max(5, Math.min(config.duration || 30, 180));
-  await params.onProgress?.("Finding Highlights", 70);
-  return heuristicHighlights(total, desiredHeuristic, clipDurHeuristic, config.mode, false, config.prompt);
+  // Ask the active AI provider to propose highlights; fall back to local heuristic if unavailable.
 
-  // Ask AI (text model) to propose highlights based on metadata/signals; if unavailable, fallback heuristic.
   const desired = Math.max(1, Math.min(config.quantity || 3, 20));
   const clipDur = Math.max(5, Math.min(config.duration || 30, 180));
 
