@@ -11,7 +11,7 @@ const nav = [
   { href: "/projects", label: "Projects", icon: FolderKanban },
   { href: "/create", label: "AI Clip Studio", icon: Sparkles },
   { href: "/ai-studio/montage", label: "AI Montage", icon: Clapperboard },
-  { href: "/ai-studio/prompt-editor", label: "Prompt Editor", icon: Wand2 },
+  { href: "/ai-studio/prompt-editor", label: "Buat Video AI", icon: Wand2 },
   { href: "/ai-studio/auto-caption", label: "Auto Caption", icon: Captions },
   { href: "/ai-studio/convert-resize", label: "Convert & Resize", icon: Scaling },
   { href: "/ai-studio/watermark-delogo", label: "Hapus Watermark", icon: Eraser },

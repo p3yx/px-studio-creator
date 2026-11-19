@@ -357,6 +357,40 @@ export async function replaceClipAudio(opts: {
   return opts.input;
 }
 
+/** Build a Ken Burns slideshow video from local images, optionally with looping music. */
+export async function createImageSlideshow(opts: {
+  images: string[];
+  output: string;
+  aspect: "9:16" | "16:9" | "1:1";
+  secondsPerImage?: number;
+  musicPath?: string | null;
+}) {
+  await fs.mkdir(path.dirname(opts.output), { recursive: true });
+  const images = opts.images.slice(0, 12);
+  if (!images.length) throw new Error("Minimal satu gambar diperlukan.");
+  const W = opts.aspect === "16:9" ? 1920 : 1080;
+  const H = opts.aspect === "9:16" ? 1920 : opts.aspect === "1:1" ? 1080 : 1080;
+  const sec = Math.max(1.5, Math.min(10, Number(opts.secondsPerImage || 3)));
+  const args: string[] = ["-y"];
+  for (const img of images) args.push("-loop", "1", "-t", String(sec), "-i", img);
+  const music = opts.musicPath ? await fs.stat(opts.musicPath).then(() => opts.musicPath).catch(() => null) : null;
+  if (music) args.push("-stream_loop", "-1", "-i", music);
+  const chains = images.map((_, i) =>
+    `[${i}:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},` +
+    `zoompan=z='min(zoom+0.0012,1.06)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${W}x${H}:fps=30,` +
+    `trim=duration=${sec},setpts=PTS-STARTPTS[v${i}]`,
+  );
+  const labels = images.map((_, i) => `[v${i}]`).join("");
+  const filter = `${chains.join(";")};${labels}concat=n=${images.length}:v=1:a=0[vout]`;
+  args.push("-filter_complex", filter, "-map", "[vout]");
+  if (music) args.push("-map", `${images.length}:a?`, "-c:a", "aac", "-b:a", "160k", "-shortest");
+  else args.push("-an");
+  args.push("-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p", "-movflags", "+faststart", opts.output);
+  const r = await runProcess(FFMPEG, args);
+  if (r.code !== 0) throw new Error(`Slideshow render failed: ${String(r.stderr).slice(-600)}`);
+  return opts.output;
+}
+
 export async function generateThumbnail(input: string, output: string, atSeconds = 1) {
   await fs.mkdir(path.dirname(output), { recursive: true });
   const args = ["-y", "-ss", String(atSeconds), "-i", input, "-frames:v", "1", "-q:v", "3", output];

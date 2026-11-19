@@ -2,7 +2,8 @@ import path from "path";
 import fs from "fs/promises";
 import { prisma } from "./db";
 import { analyzeVideoForHighlights } from "./analysis";
-import { renderClip, probeVideo, generateThumbnail, convertResizeVideo } from "./ffmpeg";
+import { renderClip, probeVideo, generateThumbnail, convertResizeVideo, createImageSlideshow, ensureAutoMusicTrack } from "./ffmpeg";
+import { runTaskChat } from "./ai-providers";
 import { clipsDir, tempDir, ensureProjectDirs } from "./storage";
 import { safeJsonParse } from "./utils";
 import { buildMontagePlan, renderMontage } from "./montage";
@@ -315,10 +316,59 @@ async function processConvertResizeJob(job: any) {
   await updateJob(job.id, { status: "COMPLETED", stage: "Completed", progress: 100, finishedAt: new Date(), resultJson: JSON.stringify({ outputPath: outPath, duration, aspect, fit }) });
 }
 
+async function processAiVideoJob(job: any) {
+  const project = await prisma.project.findUnique({ where: { id: job.projectId }, include: { clips: true } });
+  if (!project) throw new Error("Project missing");
+  const config: any = safeJsonParse((project as any).configJson, {});
+  await updateJob(job.id, { status: "RENDERING", stage: "Rendering", progress: 20, startedAt: new Date(), error: null });
+  await updateProject(project.id, { status: "RENDERING", errorMessage: null });
+  await ensureProjectDirs(project.id);
+  const out = path.join(clipsDir(project.id), "ai-video.mp4");
+
+  const images: string[] = Array.isArray(config.images) ? config.images.filter(Boolean) : [];
+  const music = config.music ? await ensureAutoMusicTrack().catch(() => null) : null;
+  if (images.length) {
+    await createImageSlideshow({
+      images, output: out, aspect: config.aspect || "9:16",
+      secondsPerImage: Number(config.secondsPerImage || 3), musicPath: music,
+    });
+  } else if (config.videoPath) {
+    await fs.copyFile(config.videoPath, out);
+  } else {
+    throw new Error("Tidak ada gambar atau video untuk diproses.");
+  }
+
+  // AI-assisted title & story description from the active provider; deterministic fallback.
+  let title = String(config.name || project.name || "AI Video").slice(0, 80);
+  let description = `Video dibuat dari ${images.length} gambar sesuai prompt: ${String(config.prompt || "").slice(0, 160)}`;
+  try {
+    const resp: any = await runTaskChat("metadata_generation", [
+      { role: "system", content: "Return strict JSON only." },
+      { role: "user", content: `Buat judul singkat dan deskripsi 1-2 kalimat (bahasa Indonesia) untuk video dari prompt: "${config.prompt || ""}". Sumber: ${images.length ? images.length + " gambar" : "video"}. JSON: {"title":string,"description":string}` },
+    ], { temperature: 0.4, json: true, timeout: 60000 });
+    const c = resp?.choices?.[0]?.message?.content;
+    const parsed = typeof c === "string" ? safeJsonParse<any>(c, {}) : c;
+    if (parsed?.title) title = String(parsed.title).slice(0, 80);
+    if (parsed?.description) description = String(parsed.description).slice(0, 400);
+  } catch {}
+
+  const st = await fs.stat(out).catch(() => null);
+  await prisma.clip.updateMany({
+    where: { projectId: project.id },
+    data: { status: "completed", outputPath: out, fileSize: st?.size || null, title, description, resolution: config.aspect === "16:9" ? "1920x1080" : "1080x1920" },
+  });
+  await updateProject(project.id, { status: "COMPLETED", outputPath: out, outputSize: st?.size || null });
+  await updateJob(job.id, { status: "COMPLETED", stage: "Completed", progress: 100, finishedAt: new Date() });
+  return out;
+}
+
 async function processJob(job: any) {
   const project = await prisma.project.findUnique({ where: { id: job.projectId }, include: { clips: true } });
   if (!project) throw new Error("Project missing");
   const p: any = project;
+  if (p.type === "ai-video" || job.type === "ai_video") {
+    return processAiVideoJob(job);
+  }
   if (p.type === "montage" || job.type === "montage") {
     return processMontageJob(job);
   }
