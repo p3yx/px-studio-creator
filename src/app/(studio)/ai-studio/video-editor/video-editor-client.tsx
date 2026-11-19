@@ -26,6 +26,7 @@ export default function VideoEditorClient() {
   const [library, setLibrary] = useState<{ videos: any[]; audios: any[] }>({ videos: [], audios: [] });
   const [libTab, setLibTab] = useState<"media" | "audio">("media");
   const [sourceProject, setSourceProject] = useState("");
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [past, setPast] = useState<EditorTimeline[]>([]);
   const [future, setFuture] = useState<EditorTimeline[]>([]);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -50,7 +51,10 @@ export default function VideoEditorClient() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const id = params.get("project");
-    if (id) { setProjectId(id); load(id).catch(e => setMsg(e.message)); }
+    if (id) {
+      setProjectId(id);
+      load(id).catch(e => { setLoadError(e.message || "Project tidak ditemukan"); setMsg(null); });
+    }
   }, [load]);
 
   useEffect(() => {
@@ -311,6 +315,13 @@ export default function VideoEditorClient() {
       <PageHeader title="Video Editor" description="Workspace editing non-destructive: timeline multi-track, preview, dan render dari data timeline yang sama." />
 
       {msg && <Card className="p-3 text-sm text-violet-200 border-violet-400/20 bg-violet-500/10">{msg}</Card>}
+      {loadError && (
+        <Card className="p-4 text-sm text-amber-200 border-amber-400/20 bg-amber-500/10 space-y-2">
+          <div><b>Project tidak dapat dimuat:</b> {loadError}</div>
+          <div className="text-xs">Periksa kembali ID project di URL, atau buka project dari halaman <b>Projects</b> / tombol <b>Buka Project di Editor</b> di bawah.</div>
+          <Button variant="secondary" onClick={()=>{ setLoadError(null); router.replace("/ai-studio/video-editor"); }}>Kosongkan & Import Baru</Button>
+        </Card>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <input ref={fileRef} type="file" accept="video/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) importVideo(f); e.target.value = ""; }} />
