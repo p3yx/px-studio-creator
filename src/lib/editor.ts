@@ -1,3 +1,14 @@
+export const EDITOR_TOOLS = ["split", "setSpeed", "setEffect", "addText", "move", "trim", "delete", "addKeyframe"] as const;
+export const KEYFRAME_PROPERTIES = ["volume", "opacity"] as const;
+
+export type EditorKeyframe = {
+  id: string;
+  time: number;
+  property: "volume" | "opacity";
+  value: number;
+  interpolation: "linear" | "easeIn" | "easeOut" | "easeInOut";
+};
+
 export type EditorClip = {
   id: string;
   name: string;
@@ -21,6 +32,9 @@ export type EditorClip = {
   brightness?: number;
   contrast?: number;
   saturation?: number;
+  effect?: "none" | "blur" | "vignette" | "grain" | "shake" | "zoom";
+  effectIntensity?: number;
+  keyframes?: EditorKeyframe[];
 };
 
 export type EditorTrack = {
@@ -97,6 +111,15 @@ export function normalizeTimeline(raw: any): EditorTimeline {
         brightness: Math.max(-1, Math.min(1, Number(c?.brightness || 0))),
         contrast: Math.max(0, Math.min(3, Number(c?.contrast ?? 1))),
         saturation: Math.max(0, Math.min(3, Number(c?.saturation ?? 1))),
+        effect: ["blur","vignette","grain","shake","zoom"].includes(String(c?.effect)) ? String(c.effect) as any : "none",
+        effectIntensity: Math.max(0, Math.min(100, Number(c?.effectIntensity || 30))),
+        keyframes: Array.isArray(c?.keyframes) ? c.keyframes.map((k: any) => ({
+          id: String(k?.id || `k-${Math.random().toString(36).slice(2, 8)}`),
+          time: Math.max(0, Number(k?.time || 0)),
+          property: ["volume","opacity"].includes(String(k?.property)) ? String(k.property) as any : "volume",
+          value: Number(k?.value || 0),
+          interpolation: ["linear","easeIn","easeOut","easeInOut"].includes(String(k?.interpolation)) ? String(k.interpolation) as any : "linear",
+        })).sort((a: any, b: any) => a.time - b.time) : [],
       })) : [],
     })),
   };

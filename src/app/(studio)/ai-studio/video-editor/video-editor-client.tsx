@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, Button, Input, Select, Badge, PageHeader } from "@/components/ui";
-import { Film, Music, Upload, Scissors, Trash2, Save, Play, Pause, Undo2, Redo2, Download, Plus, Type } from "lucide-react";
+import { Film, Music, Upload, Scissors, Trash2, Save, Play, Pause, Undo2, Redo2, Download, Plus, Type, Sparkles } from "lucide-react";
 import type { EditorTimeline, EditorClip } from "@/lib/editor";
 
 const uid = () => `c-${Math.random().toString(36).slice(2, 9)}`;
@@ -20,6 +20,8 @@ export default function VideoEditorClient() {
   const [job, setJob] = useState<any>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [agentCmd, setAgentCmd] = useState("");
+  const [agentBusy, setAgentBusy] = useState(false);
   const [past, setPast] = useState<EditorTimeline[]>([]);
   const [future, setFuture] = useState<EditorTimeline[]>([]);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -110,6 +112,22 @@ export default function VideoEditorClient() {
     push({ ...timeline, tracks: timeline.tracks.map(tr => ({ ...tr, clips: tr.clips.map(c => c.id === id ? { ...c, ...patch } : c) })) });
   }
 
+  function addKeyframe(property: "volume" | "opacity", value: number) {
+    if (!timeline || !selectedClip) return;
+    const t = Math.max(0, Math.min(selectedClip.duration, playhead - selectedClip.start));
+    const kfs = [...(selectedClip.keyframes || []), { id: uid(), time: Math.round(t * 100) / 100, property, value, interpolation: "linear" as const }];
+    updateClip(selectedClip.id, { keyframes: kfs.sort((a, b) => a.time - b.time) });
+    setMsg(`Keyframe ${property} ditambahkan pada ${t.toFixed(2)}s.`);
+  }
+  function updateKeyframe(id: string, patch: any) {
+    if (!selectedClip) return;
+    updateClip(selectedClip.id, { keyframes: (selectedClip.keyframes || []).map(k => k.id === id ? { ...k, ...patch } : k).sort((a, b) => a.time - b.time) });
+  }
+  function deleteKeyframe(id: string) {
+    if (!selectedClip) return;
+    updateClip(selectedClip.id, { keyframes: (selectedClip.keyframes || []).filter(k => k.id !== id) });
+  }
+
   function split() {
     if (!timeline || !selected) return;
     for (const tr of timeline.tracks) {
@@ -150,6 +168,20 @@ export default function VideoEditorClient() {
       if (!j.ok) throw new Error(j.error || "Gagal menyimpan");
       setMsg("Project tersimpan.");
     } catch (e: any) { setMsg(e.message || "Gagal"); } finally { setBusy(false); }
+  }
+
+  async function runAgent() {
+    if (!projectId || !agentCmd.trim()) return;
+    setAgentBusy(true); setMsg(null);
+    try {
+      const r = await fetch(`/api/video-editor/${projectId}/agent`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ command: agentCmd }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error || "Agent gagal");
+      setTimeline(j.timeline); setPast(p => [...p.slice(-29), timeline!]); setFuture([]);
+      setMsg(`Agent (${j.source}): ${(j.notes || []).join(", ") || "selesai"}`);
+      setAgentCmd("");
+    } catch (e: any) { setMsg(e.message || "Agent gagal"); }
+    finally { setAgentBusy(false); }
   }
 
   async function renderVideo() {
@@ -225,6 +257,18 @@ export default function VideoEditorClient() {
         <Button onClick={renderVideo} disabled={!projectId || busy}><Download size={15}/> Export</Button>
         <div className="w-full sm:w-56"><Input value={name} onChange={e => setName(e.target.value)} placeholder="Nama project" /></div>
       </div>
+
+      <Card className="p-4 space-y-2">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="text-sm font-medium">AI Editing Agent</div>
+          <div className="text-[11px] text-zinc-500">Perintah → operasi timeline tervalidasi (bukan shell / bukan edit file langsung).</div>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <Input value={agentCmd} onChange={e => setAgentCmd(e.target.value)} onKeyDown={e => { if (e.key === "Enter") runAgent(); }} placeholder='Contoh: "potong clip 1 di detik 5 lalu terapkan blur" / "tambah teks HALO di detik 2"' className="flex-1 min-w-[220px]" />
+          <Button onClick={runAgent} disabled={agentBusy || !projectId || !agentCmd.trim()}><Sparkles size={15}/> {agentBusy ? "Memproses..." : "Jalankan Agent"}</Button>
+        </div>
+        <div className="text-[11px] text-zinc-500">Tool: split, setSpeed, setEffect, addText, move, trim, delete, addKeyframe. Semua perubahan masuk undo & render.</div>
+      </Card>
 
       {!timeline ? (
         <Card className="p-10 text-center text-zinc-400">Import video untuk mulai membuat timeline.</Card>
@@ -322,8 +366,39 @@ export default function VideoEditorClient() {
                           <button key={String(n)} type="button" onClick={()=>updateClip(selectedClip.id,{brightness:b as number,contrast:c as number,saturation:s as number})} className="px-2.5 h-8 rounded-lg border border-white/10 bg-white/[0.03] text-xs hover:bg-white/[0.08]">{String(n)}</button>
                         ))}
                       </div>
+                      <div className="space-y-1"><label className="text-xs text-zinc-400">Efek</label>
+                        <Select value={selectedClip.effect || "none"} onChange={e=>updateClip(selectedClip.id,{effect:e.target.value as any})}>
+                          <option value="none">Tidak ada</option><option value="blur">Blur</option><option value="vignette">Vignette</option><option value="grain">Grain</option><option value="shake">Shake</option><option value="zoom">Zoom</option>
+                        </Select>
+                      </div>
+                      <div className="space-y-1"><label className="text-xs text-zinc-400">Intensitas Efek</label><Input type="number" min={0} max={100} value={selectedClip.effectIntensity ?? 30} onChange={e=>updateClip(selectedClip.id,{effectIntensity:Number(e.target.value)})} /></div>
                     </>
                   )}
+                  <div className="sm:col-span-4 border-t border-white/10 pt-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="text-xs font-medium text-zinc-300">Keyframe</div>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={()=>addKeyframe("opacity", selectedClip.opacity ?? 1)} className="px-2 h-7 rounded-md border border-white/10 text-xs">+ Opacity</button>
+                        <button type="button" onClick={()=>addKeyframe("volume", selectedClip.volume ?? 1)} className="px-2 h-7 rounded-md border border-white/10 text-xs">+ Volume</button>
+                      </div>
+                    </div>
+                    {(selectedClip.keyframes || []).length === 0 ? <div className="text-xs text-zinc-500">Belum ada keyframe.</div> : (
+                      <div className="space-y-1">
+                        {(selectedClip.keyframes || []).map(k => (
+                          <div key={k.id} className="flex items-center gap-2 text-xs">
+                            <span className="w-16 text-zinc-400">{k.property}</span>
+                            <input type="number" step={0.1} className="w-20 h-7 rounded-md border border-white/10 bg-white/[0.03] px-2" value={k.time} onChange={e=>updateKeyframe(k.id,{time:Number(e.target.value)})} />
+                            <input type="number" step={0.05} className="w-20 h-7 rounded-md border border-white/10 bg-white/[0.03] px-2" value={k.value} onChange={e=>updateKeyframe(k.id,{value:Number(e.target.value)})} />
+                            <select className="h-7 rounded-md border border-white/10 bg-[#14141a] px-2" value={k.interpolation} onChange={e=>updateKeyframe(k.id,{interpolation:e.target.value})}>
+                              <option value="linear">Linear</option><option value="easeIn">Ease In</option><option value="easeOut">Ease Out</option><option value="easeInOut">Ease In Out</option>
+                            </select>
+                            <button type="button" onClick={()=>deleteKeyframe(k.id)} className="text-red-300">✕</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="text-[11px] text-zinc-500">Keyframe opacity/volume dihitung FFmpeg saat render (interpolasi linear/ease). Zoom keyframe belum didukung — efek Zoom tersedia lewat panel Efek.</div>
+                  </div>
                   {selectedClip.kind === "text" && (
                     <>
                       <div className="sm:col-span-2 space-y-1"><label className="text-xs text-zinc-400">Teks</label><Input value={selectedClip.text || ""} onChange={e=>updateClip(selectedClip.id,{text:e.target.value})} /></div>

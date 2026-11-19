@@ -14,6 +14,35 @@ function escapeConcat(p: string) { return p.replace(/\\/g, "/").replace(/'/g, "'
 function esc(s: string) { return String(s || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\r?\n/g, " "); }
 function hexColor(c: string) { return String(c || "#FFFFFF").replace(/^#/, "0x"); }
 
+function easeExpr(p: string, mode: string) {
+  if (mode === "easeIn") return `(${p})*(${p})`;
+  if (mode === "easeOut") return `1-(1-(${p}))*(1-(${p}))`;
+  if (mode === "easeInOut") return `if(lt(${p},0.5),2*${p}*${p},1-2*(1-${p})*(1-${p}))`;
+  return p;
+}
+
+function animExpr(base: number, keyframes: any[], duration: number) {
+  const kfs = (keyframes || []).filter(k => Number.isFinite(Number(k.time)) && k.time >= 0 && k.time <= duration + 0.01);
+  if (!kfs.length) return String(base);
+  kfs.sort((a: any, b: any) => Number(a.time) - Number(b.time));
+  let expr = String(base);
+  const last = kfs[kfs.length - 1];
+  expr = `${Number(last.value)}`;
+  for (let i = kfs.length - 1; i >= 0; i--) {
+    const k = kfs[i];
+    const prevValue = i > 0 ? Number(kfs[i - 1].value) : Number(base);
+    const t0 = i > 0 ? Number(kfs[i - 1].time) : 0;
+    const t1 = Math.max(Number(k.time), t0 + 0.001);
+    const span = Math.max(0.001, t1 - t0).toFixed(3);
+    const prog = `min(max((T-${t0.toFixed(3)})/${span},0),1)`;
+    const e = easeExpr(prog, String(k.interpolation || "linear"));
+    const seg = `(${prevValue}+(${Number(k.value)}-${prevValue})*${e})`;
+    expr = `if(lt(T,${t1.toFixed(3)}),${seg},${expr})`;
+  }
+  void last;
+  return expr;
+}
+
 async function makeFiller(out: string, seconds: number, t: EditorTimeline) {
   const r = await runProcess(FF(), [
     "-y", "-f", "lavfi", "-i", `color=c=black:s=${t.width}x${t.height}:r=${t.fps}:d=${seconds}`,
@@ -33,8 +62,17 @@ async function renderSegment(c: EditorClip, t: EditorTimeline, texts: EditorClip
   if (c.brightness || c.contrast !== 1 || c.saturation !== 1) {
     vf.push(`eq=brightness=${(Number(c.brightness || 0) * 0.2).toFixed(3)}:contrast=${Number(c.contrast || 1).toFixed(3)}:saturation=${Number(c.saturation || 1).toFixed(3)}`);
   }
-  if (Number(c.opacity ?? 1) < 1) {
-    vf.push(`format=rgba,colorchannelmixer=aa=${Number(c.opacity).toFixed(3)},format=yuv420p`);
+  const opKfs = (c.keyframes || []).filter(k => k.property === "opacity");
+  const opExpr = animExpr(Number(c.opacity ?? 1), opKfs, dur);
+  if (opExpr !== String(Number(c.opacity ?? 1)) || Number(c.opacity ?? 1) < 1) {
+    vf.push(`format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='255*min(max(${opExpr},0),1)',format=yuv420p`);
+  }
+  const inten = Math.max(0, Math.min(100, Number(c.effectIntensity || 30)));
+  if (c.effect === "blur") vf.push(`gblur=sigma=${(inten / 10).toFixed(2)}`);
+  if (c.effect === "vignette") vf.push("vignette=PI/4");
+  if (c.effect === "grain") vf.push(`noise=alls=${Math.max(1, Math.round(inten / 3))}:allf=t`);
+  if (c.effect === "shake") {
+    vf.push(`scale=${t.width + 40}:${t.height + 40},crop=${t.width}:${t.height}:x='20+${(inten / 5).toFixed(1)}*sin(T*18)':y='20+${(inten / 5).toFixed(1)}*cos(T*15)'`);
   }
   const fi = Math.max(0, Number(c.fadeIn || 0));
   const fo = Math.max(0, Number(c.fadeOut || 0));
@@ -54,7 +92,11 @@ async function renderSegment(c: EditorClip, t: EditorTimeline, texts: EditorClip
 
   const af: string[] = [];
   if (speed !== 1) af.push(`atempo=${speed.toFixed(4)}`);
-  if (Number(c.volume ?? 1) !== 1) af.push(`volume=${Number(c.volume).toFixed(3)}`);
+  const volKfs = (c.keyframes || []).filter(k => k.property === "volume");
+  const volExpr = animExpr(Number(c.volume ?? 1), volKfs, dur);
+  if (volExpr !== String(Number(c.volume ?? 1)) || Number(c.volume ?? 1) !== 1) {
+    af.push(`volume='${volExpr}':eval=frame`);
+  }
   if (fi > 0) af.push(`afade=t=in:st=0:d=${Math.min(fi, dur).toFixed(3)}`);
   if (fo > 0) af.push(`afade=t=out:st=${Math.max(0, dur - Math.min(fo, dur)).toFixed(3)}:d=${Math.min(fo, dur).toFixed(3)}`);
 
