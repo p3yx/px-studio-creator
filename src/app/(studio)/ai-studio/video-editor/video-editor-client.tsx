@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, Button, Input, Select, Badge, PageHeader } from "@/components/ui";
-import { Film, Music, Upload, Scissors, Trash2, Save, Play, Pause, Undo2, Redo2, Download, Plus } from "lucide-react";
+import { Film, Music, Upload, Scissors, Trash2, Save, Play, Pause, Undo2, Redo2, Download, Plus, Type } from "lucide-react";
 import type { EditorTimeline, EditorClip } from "@/lib/editor";
 
 const uid = () => `c-${Math.random().toString(36).slice(2, 9)}`;
@@ -70,6 +70,19 @@ export default function VideoEditorClient() {
       setMsg("Media diimport. Timeline siap diedit.");
     } catch (e: any) { setMsg(e.message || "Gagal import"); }
     finally { setBusy(false); }
+  }
+
+  function addText() {
+    if (!timeline) return;
+    const track = timeline.tracks.find(t => t.type === "video")!;
+    const clip: EditorClip = {
+      id: uid(), name: "Teks", path: "", sourceIn: 0, sourceOut: 3,
+      start: clamp(playhead, 0, Math.max(0, duration - 3)), duration: 3,
+      trackId: track.id, kind: "text", text: "Teks baru", fontSize: 48, color: "#FFFFFF", x: 50, y: 50,
+    };
+    push({ ...timeline, tracks: timeline.tracks.map(t => t.id === track.id ? { ...t, clips: [...t.clips, clip] } : t) });
+    setSelected(clip.id);
+    setMsg("Teks ditambahkan. Atur di panel Properties.");
   }
 
   async function addAsset(file: File, kind: "audio" | "video") {
@@ -205,6 +218,7 @@ export default function VideoEditorClient() {
         <input ref={audioRef} type="file" accept="audio/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) addAsset(f, "audio"); e.target.value = ""; }} />
         <Button variant="secondary" onClick={() => fileRef.current?.click()} disabled={busy}><Upload size={15}/> Import Video</Button>
         <Button variant="secondary" onClick={() => audioRef.current?.click()} disabled={busy || !projectId}><Music size={15}/> Add Audio</Button>
+        <Button variant="secondary" onClick={addText} disabled={!timeline}><Type size={15}/> Add Text</Button>
         <Button variant="secondary" onClick={undo} disabled={!past.length}><Undo2 size={15}/> Undo</Button>
         <Button variant="secondary" onClick={redo} disabled={!future.length}><Redo2 size={15}/> Redo</Button>
         <Button variant="secondary" onClick={save} disabled={!projectId || busy}><Save size={15}/> Save</Button>
@@ -275,6 +289,53 @@ export default function VideoEditorClient() {
                 </div>
               </div>
               <div className="text-xs text-zinc-500">Geser clip untuk memindah · pinggir kiri/kanan untuk trim · klik ruler untuk playhead · Space play/pause · Delete hapus · Ctrl+S save · Ctrl+Z undo.</div>
+            </Card>
+
+            <Card className="p-4 space-y-4">
+              <div className="font-medium">Properties Inspector</div>
+              {!selectedClip ? (
+                <div className="text-sm text-zinc-500">Pilih clip di timeline untuk mengubah propertinya.</div>
+              ) : (
+                <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="space-y-1"><label className="text-xs text-zinc-400">Nama</label><Input value={selectedClip.name} onChange={e=>updateClip(selectedClip.id,{name:e.target.value})} /></div>
+                  <div className="space-y-1"><label className="text-xs text-zinc-400">Mulai (s)</label><Input type="number" step={0.1} min={0} value={selectedClip.start} onChange={e=>updateClip(selectedClip.id,{start:Number(e.target.value)})} /></div>
+                  <div className="space-y-1"><label className="text-xs text-zinc-400">Durasi (s)</label><Input type="number" step={0.1} min={0.1} value={selectedClip.duration} onChange={e=>updateClip(selectedClip.id,{duration:Number(e.target.value), sourceOut:selectedClip.sourceIn+Number(e.target.value)})} /></div>
+                  <div className="space-y-1"><label className="text-xs text-zinc-400">Kecepatan</label><Input type="number" step={0.1} min={0.25} max={4} value={selectedClip.speed || 1} onChange={e=>updateClip(selectedClip.id,{speed:Number(e.target.value)})} /></div>
+
+                  {selectedClip.kind === "audio" && (
+                    <div className="space-y-1"><label className="text-xs text-zinc-400">Volume</label><Input type="number" step={0.1} min={0} max={2} value={selectedClip.volume ?? 1} onChange={e=>updateClip(selectedClip.id,{volume:Number(e.target.value)})} /></div>
+                  )}
+                  {(selectedClip.kind === "video" || selectedClip.kind === "audio") && (
+                    <>
+                      <div className="space-y-1"><label className="text-xs text-zinc-400">Fade In (s)</label><Input type="number" step={0.1} min={0} value={selectedClip.fadeIn || 0} onChange={e=>updateClip(selectedClip.id,{fadeIn:Number(e.target.value)})} /></div>
+                      <div className="space-y-1"><label className="text-xs text-zinc-400">Fade Out (s)</label><Input type="number" step={0.1} min={0} value={selectedClip.fadeOut || 0} onChange={e=>updateClip(selectedClip.id,{fadeOut:Number(e.target.value)})} /></div>
+                    </>
+                  )}
+                  {selectedClip.kind === "video" && (
+                    <>
+                      <div className="space-y-1"><label className="text-xs text-zinc-400">Opacity</label><Input type="number" step={0.05} min={0} max={1} value={selectedClip.opacity ?? 1} onChange={e=>updateClip(selectedClip.id,{opacity:Number(e.target.value)})} /></div>
+                      <div className="space-y-1"><label className="text-xs text-zinc-400">Brightness</label><Input type="number" step={0.05} min={-1} max={1} value={selectedClip.brightness || 0} onChange={e=>updateClip(selectedClip.id,{brightness:Number(e.target.value)})} /></div>
+                      <div className="space-y-1"><label className="text-xs text-zinc-400">Contrast</label><Input type="number" step={0.05} min={0} max={3} value={selectedClip.contrast ?? 1} onChange={e=>updateClip(selectedClip.id,{contrast:Number(e.target.value)})} /></div>
+                      <div className="space-y-1"><label className="text-xs text-zinc-400">Saturation</label><Input type="number" step={0.05} min={0} max={3} value={selectedClip.saturation ?? 1} onChange={e=>updateClip(selectedClip.id,{saturation:Number(e.target.value)})} /></div>
+                      <div className="sm:col-span-2 flex flex-wrap gap-2 items-end pb-1">
+                        {[["Cinematic",0.05,1.15,0.85],["Warm",0.08,1.05,1.15],["Cool",-0.03,1.1,0.9],["Anime",0.05,1.2,1.3]].map(([n,b,c,s])=>(
+                          <button key={String(n)} type="button" onClick={()=>updateClip(selectedClip.id,{brightness:b as number,contrast:c as number,saturation:s as number})} className="px-2.5 h-8 rounded-lg border border-white/10 bg-white/[0.03] text-xs hover:bg-white/[0.08]">{String(n)}</button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  {selectedClip.kind === "text" && (
+                    <>
+                      <div className="sm:col-span-2 space-y-1"><label className="text-xs text-zinc-400">Teks</label><Input value={selectedClip.text || ""} onChange={e=>updateClip(selectedClip.id,{text:e.target.value})} /></div>
+                      <div className="space-y-1"><label className="text-xs text-zinc-400">Ukuran Font</label><Input type="number" min={12} max={160} value={selectedClip.fontSize || 48} onChange={e=>updateClip(selectedClip.id,{fontSize:Number(e.target.value)})} /></div>
+                      <div className="space-y-1"><label className="text-xs text-zinc-400">Warna</label><Input value={selectedClip.color || "#FFFFFF"} onChange={e=>updateClip(selectedClip.id,{color:e.target.value})} /></div>
+                      <div className="space-y-1"><label className="text-xs text-zinc-400">Posisi X (%)</label><Input type="number" min={0} max={100} value={selectedClip.x ?? 50} onChange={e=>updateClip(selectedClip.id,{x:Number(e.target.value)})} /></div>
+                      <div className="space-y-1"><label className="text-xs text-zinc-400">Posisi Y (%)</label><Input type="number" min={0} max={100} value={selectedClip.y ?? 50} onChange={e=>updateClip(selectedClip.id,{y:Number(e.target.value)})} /></div>
+                    </>
+                  )}
+                </div>
+              )}
+              <div className="text-xs text-zinc-500 border-t border-white/10 pt-3">Semua properti di atas ikut dirender oleh FFmpeg menggunakan data timeline yang sama dengan preview (bukan efek visual semu).</div>
             </Card>
           </div>
         </>

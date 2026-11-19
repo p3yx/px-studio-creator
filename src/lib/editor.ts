@@ -7,7 +7,20 @@ export type EditorClip = {
   start: number;
   duration: number;
   trackId: string;
-  kind?: "video" | "audio";
+  kind?: "video" | "audio" | "text";
+  speed?: number;
+  volume?: number;
+  fadeIn?: number;
+  fadeOut?: number;
+  opacity?: number;
+  text?: string;
+  fontSize?: number;
+  color?: string;
+  x?: number;
+  y?: number;
+  brightness?: number;
+  contrast?: number;
+  saturation?: number;
 };
 
 export type EditorTrack = {
@@ -71,7 +84,19 @@ export function normalizeTimeline(raw: any): EditorTimeline {
         start: Math.max(0, Number(c?.start || 0)),
         duration: Math.max(0.1, Number(c?.duration || 1)),
         trackId: String(tr?.id || ""),
-        kind: tr?.type === "audio" ? "audio" : "video",
+        kind: c?.kind === "text" ? "text" : tr?.type === "audio" ? "audio" : "video",
+        speed: Math.max(0.25, Math.min(4, Number(c?.speed || 1))),
+        volume: Math.max(0, Math.min(2, Number(c?.volume ?? 1))),
+        fadeIn: Math.max(0, Number(c?.fadeIn || 0)),
+        fadeOut: Math.max(0, Number(c?.fadeOut || 0)),
+        opacity: Math.max(0, Math.min(1, Number(c?.opacity ?? 1))),
+        text: String(c?.text || ""),
+        fontSize: Math.max(12, Math.min(160, Number(c?.fontSize || 48))),
+        color: String(c?.color || "#FFFFFF"),
+        x: Number(c?.x ?? 50), y: Number(c?.y ?? 50),
+        brightness: Math.max(-1, Math.min(1, Number(c?.brightness || 0))),
+        contrast: Math.max(0, Math.min(3, Number(c?.contrast ?? 1))),
+        saturation: Math.max(0, Math.min(3, Number(c?.saturation ?? 1))),
       })) : [],
     })),
   };
