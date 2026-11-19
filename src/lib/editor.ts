@@ -1,4 +1,4 @@
-export const EDITOR_TOOLS = ["split", "setSpeed", "setEffect", "addText", "move", "trim", "delete", "addKeyframe"] as const;
+export const EDITOR_TOOLS = ["split", "setSpeed", "setEffect", "addText", "move", "trim", "delete", "addKeyframe", "duplicate", "rippleDelete", "setTransition", "setTrack"] as const;
 export const KEYFRAME_PROPERTIES = ["volume", "opacity"] as const;
 
 export type EditorKeyframe = {
@@ -34,6 +34,8 @@ export type EditorClip = {
   saturation?: number;
   effect?: "none" | "blur" | "vignette" | "grain" | "shake" | "zoom";
   effectIntensity?: number;
+  transitionIn?: "none" | "fade";
+  transitionDuration?: number;
   keyframes?: EditorKeyframe[];
 };
 
@@ -113,6 +115,8 @@ export function normalizeTimeline(raw: any): EditorTimeline {
         saturation: Math.max(0, Math.min(3, Number(c?.saturation ?? 1))),
         effect: ["blur","vignette","grain","shake","zoom"].includes(String(c?.effect)) ? String(c.effect) as any : "none",
         effectIntensity: Math.max(0, Math.min(100, Number(c?.effectIntensity || 30))),
+        transitionIn: String(c?.transitionIn) === "fade" ? "fade" : "none",
+        transitionDuration: Math.max(0, Math.min(5, Number(c?.transitionDuration || 0))),
         keyframes: Array.isArray(c?.keyframes) ? c.keyframes.map((k: any) => ({
           id: String(k?.id || `k-${Math.random().toString(36).slice(2, 8)}`),
           time: Math.max(0, Number(k?.time || 0)),

@@ -16,6 +16,7 @@ export default function VideoEditorClient() {
   const [playhead, setPlayhead] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
   const [px, setPx] = useState(80);
+  const [snap, setSnap] = useState(true);
   const [playing, setPlaying] = useState(false);
   const [job, setJob] = useState<any>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -128,6 +129,31 @@ export default function VideoEditorClient() {
     updateClip(selectedClip.id, { keyframes: (selectedClip.keyframes || []).filter(k => k.id !== id) });
   }
 
+  function duplicateClip() {
+    if (!timeline || !selectedClip) return;
+    const copy = { ...selectedClip, id: uid(), name: `${selectedClip.name} (copy)`, start: selectedClip.start + selectedClip.duration };
+    push({ ...timeline, tracks: timeline.tracks.map(t => t.id === selectedClip.trackId ? { ...t, clips: [...t.clips, copy] } : t) });
+    setSelected(copy.id);
+  }
+  function rippleDelete() {
+    if (!timeline || !selectedClip) return;
+    const dur = selectedClip.duration;
+    push({ ...timeline, tracks: timeline.tracks.map(t => ({
+      ...t,
+      clips: t.clips.filter(c => c.id !== selectedClip.id).map(c => c.start > selectedClip.start ? { ...c, start: Math.max(0, c.start - dur) } : c),
+    })) });
+    setSelected(null);
+  }
+  function toggleTrack(trackId: string, key: "locked" | "hidden" | "muted") {
+    if (!timeline) return;
+    push({ ...timeline, tracks: timeline.tracks.map(t => t.id === trackId ? { ...t, [key]: !t[key] } : t) });
+  }
+  function addTrack() {
+    if (!timeline) return;
+    const n = timeline.tracks.filter(t => t.type === "video").length + 1;
+    push({ ...timeline, tracks: [...timeline.tracks, { id: `v${Date.now().toString(36)}`, type: "video", name: `Overlay ${n}`, clips: [] }] });
+  }
+
   function split() {
     if (!timeline || !selected) return;
     for (const tr of timeline.tracks) {
@@ -221,7 +247,11 @@ export default function VideoEditorClient() {
   function onMove(e: React.PointerEvent) {
     const d = dragRef.current; if (!d || !timeline) return;
     const delta = (e.clientX - d.startX) / px;
-    if (d.mode === "move") updateClip(d.id, { start: Math.max(0, Math.round((d.orig.start + delta) * 10) / 10) });
+    if (d.mode === "move") {
+      const raw = Math.max(0, d.orig.start + delta);
+      const start = snap ? Math.round(raw * 2) / 2 : Math.round(raw * 10) / 10;
+      updateClip(d.id, { start });
+    }
     if (d.mode === "left") {
       const ns = clamp(d.orig.start + delta, 0, d.orig.start + d.orig.duration - 0.2);
       updateClip(d.id, { start: Math.round(ns * 10) / 10, duration: Math.round((d.orig.start + d.orig.duration - ns) * 10) / 10, sourceIn: Math.max(0, d.orig.sourceIn + (ns - d.orig.start)) });
@@ -299,6 +329,10 @@ export default function VideoEditorClient() {
                 <div className="font-medium">Timeline</div>
                 <div className="flex gap-2 items-center flex-wrap">
                   <Button variant="secondary" onClick={split}><Scissors size={15}/> Split</Button>
+                  <Button variant="secondary" onClick={duplicateClip}>Duplicate</Button>
+                  <Button variant="secondary" onClick={rippleDelete}>Ripple Delete</Button>
+                  <Button variant="secondary" onClick={addTrack}><Plus size={15}/> Add Track</Button>
+                  <button type="button" onClick={()=>setSnap(s=>!s)} className={`px-2.5 h-8 rounded-lg border text-xs ${snap ? "border-violet-400/40 bg-violet-500/15 text-violet-200" : "border-white/10 text-zinc-400"}`}>Snap {snap ? "ON" : "OFF"}</button>
                   <Button variant="secondary" onClick={removeSelected}><Trash2 size={15}/> Delete</Button>
                   <Select value={String(px)} onChange={e => setPx(Number(e.target.value))} className="w-28">
                     <option value="40">Zoom 40</option><option value="80">Zoom 80</option><option value="140">Zoom 140</option><option value="220">Zoom 220</option>
@@ -308,15 +342,23 @@ export default function VideoEditorClient() {
               </div>
               <div className="overflow-x-auto border border-white/10 rounded-xl bg-black/20" onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}>
                 <div style={{ width: Math.max(800, duration * px + 120) }} className="relative">
-                  <div className="h-7 border-b border-white/10 relative" onPointerDown={e => setPlayhead(clamp((e.nativeEvent.offsetX) / px, 0, duration))}>
+                  <div className="h-7 border-b border-white/10 relative" onPointerDown={e => setPlayhead(clamp((e.nativeEvent.offsetX - 140) / px, 0, duration))}>
                     {Array.from({ length: Math.ceil(duration / 5) + 1 }).map((_, i) => (
                       <span key={i} className="absolute top-0 h-full text-[10px] text-zinc-500 border-l border-white/10 pl-1" style={{ left: i * 5 * px }}>{i * 5}s</span>
                     ))}
                   </div>
                   {timeline.tracks.map(tr => (
                     <div key={tr.id} className="h-20 border-b border-white/10 relative">
-                      <div className="absolute left-0 top-0 h-full px-2 text-[10px] text-zinc-500 z-10 bg-[#0d0e15]/80 border-r border-white/10" style={{ width: 80 }}>{tr.type === "audio" ? <Music size={12} className="inline"/> : <Film size={12} className="inline"/>} {tr.name}</div>
-                      <div className="absolute top-0 h-full" style={{ left: 80, right: 0 }}>
+                      <div className="absolute left-0 top-0 h-full px-2 py-1 text-[10px] text-zinc-400 z-10 bg-[#0d0e15]/90 border-r border-white/10 space-y-1" style={{ width: 140 }}>
+                        <div className="truncate flex items-center gap-1">{tr.type === "audio" ? <Music size={12}/> : <Film size={12}/>} {tr.name}</div>
+                        <div className="flex gap-1">
+                          <button type="button" title="Lock" onClick={()=>toggleTrack(tr.id,"locked")} className={`px-1 rounded border ${tr.locked ? "border-amber-400/40 text-amber-300" : "border-white/10"}`}>🔒</button>
+                          <button type="button" title="Visibility" onClick={()=>toggleTrack(tr.id,"hidden")} className={`px-1 rounded border ${tr.hidden ? "border-zinc-500 text-zinc-500" : "border-white/10"}`}>👁</button>
+                          {tr.type === "audio" && <button type="button" title="Mute" onClick={()=>toggleTrack(tr.id,"muted")} className={`px-1 rounded border ${tr.muted ? "border-red-400/40 text-red-300" : "border-white/10"}`}>🔇</button>}
+                        </div>
+                        {tr.type === "audio" && <input type="range" min={0} max={2} step={0.1} value={tr.volume ?? 1} onChange={e=>{ if(!timeline) return; push({ ...timeline, tracks: timeline.tracks.map(t=>t.id===tr.id?{...t,volume:Number(e.target.value)}:t) }); }} className="w-full" />}
+                      </div>
+                      <div className="absolute top-0 h-full" style={{ left: 140, right: 0 }}>
                         {tr.clips.map(c => (
                           <div key={c.id} onPointerDown={e => onDown(e, c, "move")}
                             className={`absolute top-2 h-16 rounded-lg border text-[11px] px-2 overflow-hidden cursor-grab select-none ${selected === c.id ? "border-violet-400 bg-violet-500/30" : "border-cyan-400/30 bg-cyan-500/15"}`}
@@ -329,7 +371,7 @@ export default function VideoEditorClient() {
                       </div>
                     </div>
                   ))}
-                  <div className="absolute top-0 bottom-0 w-0.5 bg-rose-400 pointer-events-none" style={{ left: 80 + playhead * px }} />
+                  <div className="absolute top-0 bottom-0 w-0.5 bg-rose-400 pointer-events-none" style={{ left: 140 + playhead * px }} />
                 </div>
               </div>
               <div className="text-xs text-zinc-500">Geser clip untuk memindah · pinggir kiri/kanan untuk trim · klik ruler untuk playhead · Space play/pause · Delete hapus · Ctrl+S save · Ctrl+Z undo.</div>
@@ -372,6 +414,12 @@ export default function VideoEditorClient() {
                         </Select>
                       </div>
                       <div className="space-y-1"><label className="text-xs text-zinc-400">Intensitas Efek</label><Input type="number" min={0} max={100} value={selectedClip.effectIntensity ?? 30} onChange={e=>updateClip(selectedClip.id,{effectIntensity:Number(e.target.value)})} /></div>
+                      <div className="space-y-1"><label className="text-xs text-zinc-400">Transisi Masuk</label>
+                        <Select value={selectedClip.transitionIn || "none"} onChange={e=>updateClip(selectedClip.id,{transitionIn:e.target.value as any})}>
+                          <option value="none">Tidak ada</option><option value="fade">Fade</option>
+                        </Select>
+                      </div>
+                      <div className="space-y-1"><label className="text-xs text-zinc-400">Durasi Transisi (s)</label><Input type="number" min={0} max={5} step={0.1} value={selectedClip.transitionDuration || 0} onChange={e=>updateClip(selectedClip.id,{transitionDuration:Number(e.target.value)})} /></div>
                     </>
                   )}
                   <div className="sm:col-span-4 border-t border-white/10 pt-3 space-y-2">

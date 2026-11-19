@@ -101,6 +101,35 @@ export function applyEditorOps(timeline: EditorTimeline, ops: AgentOp[]) {
         notes.push(`Keyframe ${property} ditambahkan`);
         break;
       }
+      case "duplicate": {
+        if (!c) break;
+        const copy = { ...c, id: `c-${Math.random().toString(36).slice(2, 9)}`, name: `${c.name} (copy)`, start: c.start + c.duration };
+        out.tracks = out.tracks.map(tr => ({ ...tr, clips: tr.clips.flatMap(x => x.id === c.id ? [x, copy] : [x]) }));
+        notes.push(`Duplikat "${c.name}"`);
+        break;
+      }
+      case "rippleDelete": {
+        if (!c) break;
+        const dur = c.duration;
+        out.tracks = out.tracks.map(tr => ({ ...tr, clips: tr.clips.filter(x => x.id !== c.id).map(x => x.start > c.start ? { ...x, start: Math.max(0, x.start - dur) } : x) }));
+        notes.push(`Ripple delete "${c.name}"`);
+        break;
+      }
+      case "setTransition": {
+        if (!c) break;
+        const transition = String(a.transition || "none") === "fade" ? "fade" : "none";
+        const duration = clamp(Number(a.duration || 0.5), 0, 5);
+        out.tracks = out.tracks.map(tr => ({ ...tr, clips: tr.clips.map(x => x.id === c.id ? { ...x, transitionIn: transition as any, transitionDuration: duration } : x) }));
+        notes.push(`Transisi ${transition} pada "${c.name}"`);
+        break;
+      }
+      case "setTrack": {
+        const key = String(a.property || "");
+        if (!["locked", "hidden", "muted"].includes(key)) break;
+        const t = out.tracks.find(tr => tr.id === (a.trackId || find(a.track)?.trackId));
+        if (t) { (t as any)[key] = !!a.value; notes.push(`Track ${t.name}: ${key}=${!!a.value}`); }
+        break;
+      }
       default:
         notes.push(`Tool tidak dikenal: ${op.tool}`);
     }
@@ -125,7 +154,10 @@ export function parseNaturalCommand(command: string, timeline: EditorTimeline): 
   } else if (/blur|vignette|grain|shake|zoom/.test(p)) {
     const effect = (p.match(/blur|vignette|grain|shake|zoom/) || ["none"])[0];
     ops.push({ tool: "setEffect", args: { clipId, effect, intensity: 40 } });
-  } else if (/hapus|delete/.test(p)) ops.push({ tool: "delete", args: { clipId } });
+  } else if (/duplikat|duplicate/.test(p)) ops.push({ tool: "duplicate", args: { clipId } });
+  else if (/ripple/.test(p)) ops.push({ tool: "rippleDelete", args: { clipId } });
+  else if (/transisi|transition|fade/.test(p)) ops.push({ tool: "setTransition", args: { clipId, transition: "fade", duration: secs ? Number(secs) : 0.5 } });
+  else if (/hapus|delete/.test(p)) ops.push({ tool: "delete", args: { clipId } });
   else if (/pindah|move/.test(p)) ops.push({ tool: "move", args: { clipId, start: secs ? Number(secs) : 0 } });
   else if (/trim/.test(p)) ops.push({ tool: "trim", args: { clipId, end: secs ? Number(secs) : undefined } });
   return ops.slice(0, 4);

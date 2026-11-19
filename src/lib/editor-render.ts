@@ -74,7 +74,8 @@ async function renderSegment(c: EditorClip, t: EditorTimeline, texts: EditorClip
   if (c.effect === "shake") {
     vf.push(`scale=${t.width + 40}:${t.height + 40},crop=${t.width}:${t.height}:x='20+${(inten / 5).toFixed(1)}*sin(T*18)':y='20+${(inten / 5).toFixed(1)}*cos(T*15)'`);
   }
-  const fi = Math.max(0, Number(c.fadeIn || 0));
+  const trDur = c.transitionIn === "fade" ? Math.max(0, Number(c.transitionDuration || 0)) : 0;
+  const fi = Math.max(0, Number(c.fadeIn || 0), trDur);
   const fo = Math.max(0, Number(c.fadeOut || 0));
   if (fi > 0) vf.push(`fade=t=in:st=0:d=${Math.min(fi, dur).toFixed(3)}`);
   if (fo > 0) vf.push(`fade=t=out:st=${Math.max(0, dur - Math.min(fo, dur)).toFixed(3)}:d=${Math.min(fo, dur).toFixed(3)}`);
@@ -158,6 +159,43 @@ export async function renderEditorTimeline(opts: {
   const joined = path.join(opts.workDir, "joined.mp4");
   let r = await runProcess(FF(), ["-y", "-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", joined]);
   if (r.code !== 0) throw new Error(`Concat gagal: ${String(r.stderr).slice(-500)}`);
+
+  // Multi-track compositing: every video track after the first becomes a transparent overlay lane.
+  const videoTracks = t.tracks.filter(tr => tr.type === "video" && !tr.hidden);
+  const overlays = videoTracks.slice(1).flatMap(tr => tr.clips.filter(c => c.path && c.kind !== "text"));
+  if (overlays.length) {
+    const movs: { file: string; start: number; duration: number }[] = [];
+    for (let i = 0; i < overlays.length; i++) {
+      const c = overlays[i];
+      const mov = path.join(segDir, `overlay-${i}.mov`);
+      const raw = Math.max(0.1, c.sourceOut - c.sourceIn);
+      const op = Number(c.opacity ?? 1);
+      const vf = `scale=iw*0.45:-2,format=rgba,colorchannelmixer=aa=${op.toFixed(3)},format=argb`;
+      const mr = await runProcess(FF(), [
+        "-y", "-ss", String(c.sourceIn), "-t", String(raw), "-i", c.path,
+        "-vf", vf, "-an", "-c:v", "qtrle", mov,
+      ]);
+      if (mr.code === 0) movs.push({ file: mov, start: c.start, duration: c.duration });
+    }
+    if (movs.length) {
+      const inputs = [joined, ...movs.map(m => m.file)].flatMap(f => ["-i", f]);
+      let fc = "[0:v]format=rgba[b0]";
+      let cur = "b0";
+      movs.forEach((m, i) => {
+        const x = `(W-w)*${Math.max(0, Math.min(100, Number(overlays[i].x ?? 50)))}/100`;
+        const y = `(H-h)*${Math.max(0, Math.min(100, Number(overlays[i].y ?? 50)))}/100`;
+        const out = i === movs.length - 1 ? "[vcomp]" : `[b${i + 1}]`;
+        fc += `;[${i + 1}:v]format=rgba[ov${i}];[${cur}][ov${i}]overlay=x='${x}':y='${y}':enable='between(t,${m.start.toFixed(3)},${(m.start + m.duration).toFixed(3)})':format=auto${out}`;
+        cur = `b${i + 1}`;
+      });
+      const composed = path.join(opts.workDir, "composed.mp4");
+      const cr = await runProcess(FF(), [...inputs, "-filter_complex", fc, "-map", "[vcomp]", "-map", "0:a?", "-t", String(total), "-shortest", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", composed]);
+      if (cr.code === 0) {
+        await fs.copyFile(composed, joined);
+        await opts.onProgress?.("Compositing", 85);
+      }
+    }
+  }
 
   const audios = t.tracks
     .filter(tr => tr.type === "audio" && !tr.muted)
