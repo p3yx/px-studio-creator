@@ -4,6 +4,7 @@ import { prisma } from "./db";
 import { analyzeVideoForHighlights } from "./analysis";
 import { renderClip, probeVideo, generateThumbnail, convertResizeVideo, createImageSlideshow, createPromptVideo, ensureAutoMusicTrack } from "./ffmpeg";
 import { runTaskChat } from "./ai-providers";
+import { geminiVideoAvailable, startGeminiVideo, pollGeminiVideo, saveGeminiVideo } from "./gemini-video";
 import { clipsDir, tempDir, ensureProjectDirs } from "./storage";
 import { safeJsonParse } from "./utils";
 import { buildMontagePlan, renderMontage } from "./montage";
@@ -342,24 +343,61 @@ async function processAiVideoJob(job: any) {
     if (parsed?.description) description = String(parsed.description).slice(0, 400);
   } catch {}
 
-  if (images.length) {
-    await createImageSlideshow({
-      images, output: out, aspect: config.aspect || "9:16",
-      secondsPerImage: Number(config.secondsPerImage || 3), musicPath: music,
-    });
-  } else if (config.videoPath) {
-    await fs.copyFile(config.videoPath, out);
-  } else {
-    await createPromptVideo({
-      output: out, title, description, aspect: config.aspect || "9:16",
-      duration: Number(config.promptDuration || Number(config.secondsPerImage || 3) * 4), musicPath: music,
-    });
+  // Prefer real AI video generation when the active provider is Gemini native.
+  let usedGemini = false;
+  if (config.prompt && (await geminiVideoAvailable())) {
+    try {
+      await updateJob(job.id, { stage: "AI Video Generating", progress: 30 });
+      const started = await startGeminiVideo({
+        prompt: config.prompt,
+        images,
+        video: config.videoPath || null,
+        aspect: config.aspect || "9:16",
+        durationSeconds: Number(config.promptDuration || Number(config.secondsPerImage || 3) * 4),
+      });
+      if (started.interactionId) {
+        for (let i = 0; i < 90; i++) {
+          await new Promise(r => setTimeout(r, 10000));
+          const poll = await pollGeminiVideo(started.interactionId);
+          await updateJob(job.id, { progress: Math.min(90, 35 + Math.round((i / 90) * 55)), stage: `AI Video ${poll.status}` });
+          if (poll.status === "completed") {
+            if (!poll.video) throw new Error("Gemini selesai tetapi tidak mengembalikan video.");
+            await saveGeminiVideo(poll.video, out);
+            usedGemini = true;
+            break;
+          }
+          if (poll.status === "failed" || poll.status === "cancelled" || poll.status === "error") {
+            throw new Error("Generasi video Gemini gagal/dibatalkan.");
+          }
+        }
+        if (!usedGemini) throw new Error("Timeout menunggu video Gemini.");
+      }
+    } catch (e: any) {
+      console.error("[ai-video] Gemini generation failed, using local render:", e?.message || e);
+    }
+  }
+
+  if (!usedGemini) {
+    if (images.length) {
+      await createImageSlideshow({
+        images, output: out, aspect: config.aspect || "9:16",
+        secondsPerImage: Number(config.secondsPerImage || 3), musicPath: music,
+      });
+    } else if (config.videoPath) {
+      await fs.copyFile(config.videoPath, out);
+    } else {
+      await createPromptVideo({
+        output: out, title, description, aspect: config.aspect || "9:16",
+        duration: Number(config.promptDuration || Number(config.secondsPerImage || 3) * 4), musicPath: music,
+      });
+    }
   }
 
   const st = await fs.stat(out).catch(() => null);
+  const finalDescription = usedGemini ? `[Dibuat Gemini AI: ${String((config as any).aiVideoModel || "Gemini video")}] ${description}` : description;
   await prisma.clip.updateMany({
     where: { projectId: project.id },
-    data: { status: "completed", outputPath: out, fileSize: st?.size || null, title, description, resolution: config.aspect === "16:9" ? "1920x1080" : "1080x1920" },
+    data: { status: "completed", outputPath: out, fileSize: st?.size || null, title, description: finalDescription, resolution: config.aspect === "16:9" ? "1920x1080" : "1080x1920" },
   });
   await updateProject(project.id, { status: "COMPLETED", outputPath: out, outputSize: st?.size || null });
   await updateJob(job.id, { status: "COMPLETED", stage: "Completed", progress: 100, finishedAt: new Date() });

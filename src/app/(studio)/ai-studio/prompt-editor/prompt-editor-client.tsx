@@ -120,7 +120,7 @@ export default function AiVideoClient() {
           )}
 
           <div className="text-xs text-zinc-500 leading-relaxed border-t border-white/10 pt-3">
-            Fungsi nyata: <b>tanpa file</b> → prompt jadi video motion-typography (judul + narasi AI, latar animatif, musik). <b>Dengan gambar</b> → slideshow zoom halus + musik. <b>Dengan video</b> → masuk project. Text-to-video sinematik penuh (adegan baru dari teks) belum tersedia di perangkat ini — tidak saya klaim.
+            Jika provider aktif <b>Gemini native</b> dengan model video (omni/veo), prompt + gambar/video dikirim ke <b>Gemini Interactions API</b> dan hasil video asli diunduh ke project. Jika tidak tersedia/gagal, otomatis jatuh ke render lokal: motion-typography (prompt saja), slideshow zoom (gambar), atau salinan project (video). Tanpa API eksternal lain.
           </div>
         </Card>
       </div>
