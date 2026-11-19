@@ -21,8 +21,15 @@ export async function GET() {
       take: 120,
       select: { id: true, name: true, filePath: true, duration: true, fileSize: true, format: true },
     });
+    const projects = await prisma.project.findMany({
+      where: { userId: user.id, type: "editor" },
+      orderBy: { createdAt: "desc" },
+      take: 40,
+      select: { id: true, name: true, status: true },
+    });
     return NextResponse.json({
       ok: true,
+      projects: projects.map(p => ({ id: p.id, name: p.name, status: p.status })),
       videos: clips.filter(c => c.outputPath).map(c => ({
         id: c.id, name: c.title || c.project?.name || "Clip", path: c.outputPath!,
         url: publicFileUrl(c.outputPath!), duration: Math.max(0.1, Number(c.duration || 0)),

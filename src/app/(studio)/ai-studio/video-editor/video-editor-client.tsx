@@ -23,7 +23,7 @@ export default function VideoEditorClient() {
   const [busy, setBusy] = useState(false);
   const [agentCmd, setAgentCmd] = useState("");
   const [agentBusy, setAgentBusy] = useState(false);
-  const [library, setLibrary] = useState<{ videos: any[]; audios: any[] }>({ videos: [], audios: [] });
+  const [library, setLibrary] = useState<{ videos: any[]; audios: any[]; projects: any[] }>({ videos: [], audios: [], projects: [] });
   const [libTab, setLibTab] = useState<"media" | "audio">("media");
   const [sourceProject, setSourceProject] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -45,7 +45,10 @@ export default function VideoEditorClient() {
     if (!r.ok || !j.ok) throw new Error(j.error || "Gagal memuat");
     setTimeline(j.timeline); setName(j.project.name); setJob(j.job);
     const first = j.timeline?.tracks?.flatMap((t: any) => t.clips || [])[0];
-    if (first) { setSelected(first.id); setPlayhead(first.start || 0); }
+    if (first) {
+      setSelected(first.id);
+      setPlayhead(Number(first.start || 0) + Math.min(1, Number(first.duration || 2) / 2));
+    }
   }, []);
 
   useEffect(() => {
@@ -98,7 +101,7 @@ export default function VideoEditorClient() {
   const loadLibrary = useCallback(async () => {
     try {
       const j = await fetch("/api/video-editor/library", { cache: "no-store" }).then(r => r.json());
-      if (j.ok) setLibrary({ videos: j.videos || [], audios: j.audios || [] });
+      if (j.ok) setLibrary({ videos: j.videos || [], audios: j.audios || [], projects: j.projects || [] });
     } catch {}
   }, []);
   useEffect(() => { loadLibrary(); }, [loadLibrary]);
@@ -360,8 +363,12 @@ export default function VideoEditorClient() {
           </div>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <Input value={sourceProject} onChange={e=>setSourceProject(e.target.value)} placeholder="Project ID dari AutoClip/Montage untuk dibuka di editor" className="flex-1 min-w-[220px]" />
+          <Select value={sourceProject} onChange={e=>setSourceProject(e.target.value)} className="flex-1 min-w-[220px]">
+            <option value="">Pilih project editor yang sudah ada...</option>
+            {library.projects.map(p => <option key={p.id} value={p.id}>{p.name} · {p.status} · {p.id.slice(0, 12)}…</option>)}
+          </Select>
           <Button variant="secondary" onClick={openFromProject} disabled={busy || !sourceProject.trim()}>Buka Project di Editor</Button>
+          {projectId && <Button variant="ghost" onClick={()=>{ router.replace(`/ai-studio/video-editor?project=${projectId}`); load(projectId).catch(()=>{}); }}>Reload Preview</Button>}
         </div>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-52 overflow-y-auto">
           {(libTab === "media" ? library.videos : library.audios).map((it: any) => (
@@ -383,8 +390,8 @@ export default function VideoEditorClient() {
         <Card className="p-10 text-center text-zinc-400">Import video untuk mulai membuat timeline.</Card>
       ) : (
         <>
-          <div className="grid xl:grid-cols-[1fr] gap-4">
-            <Card className="p-4">
+          <div className="grid grid-cols-1 gap-4 min-w-0">
+            <Card className="p-4 min-w-0">
               <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
                 <div className="text-sm font-medium">Preview</div>
                 <div className="flex items-center gap-2">
@@ -403,7 +410,7 @@ export default function VideoEditorClient() {
               <div className="text-xs text-zinc-500">{playhead.toFixed(1)}s / {duration.toFixed(1)}s</div>
             </Card>
 
-            <Card className="p-4 space-y-3">
+            <Card className="p-4 space-y-3 min-w-0">
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div className="font-medium">Timeline</div>
                 <div className="flex gap-2 items-center flex-wrap">
@@ -419,7 +426,7 @@ export default function VideoEditorClient() {
                   {job && <Badge>{job.stage || job.status} {job.progress ?? 0}%</Badge>}
                 </div>
               </div>
-              <div className="overflow-x-auto border border-white/10 rounded-xl bg-black/20" onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}>
+              <div className="overflow-x-auto max-w-full border border-white/10 rounded-xl bg-black/20" onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}>
                 <div style={{ width: Math.max(800, duration * px + 120) }} className="relative">
                   <div className="h-7 border-b border-white/10 relative" onPointerDown={e => setPlayhead(clamp((e.nativeEvent.offsetX - 140) / px, 0, duration))}>
                     {Array.from({ length: Math.ceil(duration / 5) + 1 }).map((_, i) => (
@@ -456,7 +463,7 @@ export default function VideoEditorClient() {
               <div className="text-xs text-zinc-500">Geser clip untuk memindah · pinggir kiri/kanan untuk trim · klik ruler untuk playhead · Space play/pause · Delete hapus · Ctrl+S save · Ctrl+Z undo.</div>
             </Card>
 
-            <Card className="p-4 space-y-4">
+            <Card className="p-4 space-y-4 min-w-0">
               <div className="font-medium">Properties Inspector</div>
               {!selectedClip ? (
                 <div className="text-sm text-zinc-500">Pilih clip di timeline untuk mengubah propertinya.</div>
