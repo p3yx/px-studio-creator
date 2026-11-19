@@ -308,10 +308,18 @@ export default function VideoEditorClient() {
   function onUp() { dragRef.current = null; }
 
   useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (playing) v.play().catch(() => setPlaying(false));
+    else v.pause();
+  }, [playing, selectedClip]);
+
+  useEffect(() => {
     if (!videoRef.current || !selectedClip) return;
+    if (playing) return;
     const t = clamp(playhead - selectedClip.start + selectedClip.sourceIn, selectedClip.sourceIn, selectedClip.sourceOut);
     if (Math.abs(videoRef.current.currentTime - t) > 0.15) videoRef.current.currentTime = t;
-  }, [playhead, selectedClip]);
+  }, [playhead, selectedClip, playing]);
 
   return (
     <div className="space-y-5">
@@ -402,7 +410,13 @@ export default function VideoEditorClient() {
               <div className="aspect-video bg-black rounded-xl overflow-hidden flex items-center justify-center">
                 {selectedClip?.url ? (
                   <video ref={videoRef} src={selectedClip.url} className="w-full h-full object-contain" muted
-                    onTimeUpdate={e => { if (playing && selectedClip) { const t = e.currentTarget.currentTime - selectedClip.sourceIn + selectedClip.start; setPlayhead(clamp(t, 0, duration)); } }}
+                    onTimeUpdate={e => {
+                      if (!playing || !selectedClip) return;
+                      const v = e.currentTarget;
+                      if (v.currentTime >= selectedClip.sourceOut - 0.05) { v.pause(); setPlaying(false); return; }
+                      const t = v.currentTime - selectedClip.sourceIn + selectedClip.start;
+                      setPlayhead(clamp(t, 0, duration));
+                    }}
                     onEnded={() => setPlaying(false)} />
                 ) : <div className="text-sm text-zinc-500">Pilih clip di timeline untuk preview.</div>}
               </div>
