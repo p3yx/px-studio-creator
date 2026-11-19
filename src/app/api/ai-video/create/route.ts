@@ -16,7 +16,6 @@ export async function POST(req: NextRequest) {
     const secondsPerImage = Math.max(1.5, Math.min(10, Number(form.get("secondsPerImage") || 3)));
     const music = String(form.get("music") || "1") === "1";
     const files = form.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
-    if (!files.length) return NextResponse.json({ error: "Pilih minimal satu gambar atau video." }, { status: 400 });
 
     const project = await prisma.project.create({
       data: { userId: user.id, name, type: "ai-video", status: "WAITING", configJson: "{}" },
@@ -30,12 +29,9 @@ export async function POST(req: NextRequest) {
       if (file.type.startsWith("image/")) images.push(saved.path);
       else if (file.type.startsWith("video/")) videoPath = videoPath || saved.path;
     }
-    if (!images.length && !videoPath) {
-      await prisma.project.delete({ where: { id: project.id } });
-      return NextResponse.json({ error: "Format harus gambar atau video." }, { status: 400 });
-    }
 
-    const config = { prompt, name, aspect, secondsPerImage, music, images, videoPath };
+    const promptDuration = Math.max(6, Math.min(30, secondsPerImage * 4));
+    const config = { prompt, name, aspect, secondsPerImage, promptDuration, music, images, videoPath };
     await prisma.project.update({ where: { id: project.id }, data: { configJson: JSON.stringify(config) } });
     await prisma.clip.create({
       data: {
@@ -43,8 +39,8 @@ export async function POST(req: NextRequest) {
         title: name,
         description: `Dibuat dari prompt: ${prompt.slice(0, 200)}`,
         startTime: 0,
-        endTime: images.length * secondsPerImage,
-        duration: images.length * secondsPerImage,
+        endTime: images.length ? images.length * secondsPerImage : promptDuration,
+        duration: images.length ? images.length * secondsPerImage : promptDuration,
         status: "pending",
         aspectRatio: aspect,
       },

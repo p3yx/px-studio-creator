@@ -2,7 +2,7 @@ import path from "path";
 import fs from "fs/promises";
 import { prisma } from "./db";
 import { analyzeVideoForHighlights } from "./analysis";
-import { renderClip, probeVideo, generateThumbnail, convertResizeVideo, createImageSlideshow, ensureAutoMusicTrack } from "./ffmpeg";
+import { renderClip, probeVideo, generateThumbnail, convertResizeVideo, createImageSlideshow, createPromptVideo, ensureAutoMusicTrack } from "./ffmpeg";
 import { runTaskChat } from "./ai-providers";
 import { clipsDir, tempDir, ensureProjectDirs } from "./storage";
 import { safeJsonParse } from "./utils";
@@ -327,6 +327,21 @@ async function processAiVideoJob(job: any) {
 
   const images: string[] = Array.isArray(config.images) ? config.images.filter(Boolean) : [];
   const music = config.music ? await ensureAutoMusicTrack().catch(() => null) : null;
+
+  // AI-assisted title & story description from the active provider; deterministic fallback.
+  let title = String(config.name || project.name || "AI Video").slice(0, 80);
+  let description = `Video dibuat dari ${images.length ? images.length + " gambar" : (config.videoPath ? "video" : "prompt")} sesuai prompt: ${String(config.prompt || "").slice(0, 160)}`;
+  try {
+    const resp: any = await runTaskChat("metadata_generation", [
+      { role: "system", content: "Return strict JSON only." },
+      { role: "user", content: `Buat judul singkat dan deskripsi 1-2 kalimat (bahasa Indonesia) untuk video dari prompt: "${config.prompt || ""}". Sumber: ${images.length ? images.length + " gambar" : (config.videoPath ? "video" : "hanya prompt")}. JSON: {"title":string,"description":string}` },
+    ], { temperature: 0.4, json: true, timeout: 60000 });
+    const c = resp?.choices?.[0]?.message?.content;
+    const parsed = typeof c === "string" ? safeJsonParse<any>(c, {}) : c;
+    if (parsed?.title) title = String(parsed.title).slice(0, 80);
+    if (parsed?.description) description = String(parsed.description).slice(0, 400);
+  } catch {}
+
   if (images.length) {
     await createImageSlideshow({
       images, output: out, aspect: config.aspect || "9:16",
@@ -335,22 +350,11 @@ async function processAiVideoJob(job: any) {
   } else if (config.videoPath) {
     await fs.copyFile(config.videoPath, out);
   } else {
-    throw new Error("Tidak ada gambar atau video untuk diproses.");
+    await createPromptVideo({
+      output: out, title, description, aspect: config.aspect || "9:16",
+      duration: Number(config.promptDuration || Number(config.secondsPerImage || 3) * 4), musicPath: music,
+    });
   }
-
-  // AI-assisted title & story description from the active provider; deterministic fallback.
-  let title = String(config.name || project.name || "AI Video").slice(0, 80);
-  let description = `Video dibuat dari ${images.length} gambar sesuai prompt: ${String(config.prompt || "").slice(0, 160)}`;
-  try {
-    const resp: any = await runTaskChat("metadata_generation", [
-      { role: "system", content: "Return strict JSON only." },
-      { role: "user", content: `Buat judul singkat dan deskripsi 1-2 kalimat (bahasa Indonesia) untuk video dari prompt: "${config.prompt || ""}". Sumber: ${images.length ? images.length + " gambar" : "video"}. JSON: {"title":string,"description":string}` },
-    ], { temperature: 0.4, json: true, timeout: 60000 });
-    const c = resp?.choices?.[0]?.message?.content;
-    const parsed = typeof c === "string" ? safeJsonParse<any>(c, {}) : c;
-    if (parsed?.title) title = String(parsed.title).slice(0, 80);
-    if (parsed?.description) description = String(parsed.description).slice(0, 400);
-  } catch {}
 
   const st = await fs.stat(out).catch(() => null);
   await prisma.clip.updateMany({

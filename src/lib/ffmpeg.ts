@@ -357,6 +357,47 @@ export async function replaceClipAudio(opts: {
   return opts.input;
 }
 
+/** Render a motion-typography video from prompt metadata (no image/video input). */
+export async function createPromptVideo(opts: {
+  output: string;
+  title: string;
+  description: string;
+  aspect: "9:16" | "16:9" | "1:1";
+  duration?: number;
+  musicPath?: string | null;
+}) {
+  await fs.mkdir(path.dirname(opts.output), { recursive: true });
+  const W = opts.aspect === "16:9" ? 1920 : 1080;
+  const H = opts.aspect === "9:16" ? 1920 : opts.aspect === "1:1" ? 1080 : 1080;
+  const dur = Math.max(6, Math.min(30, Number(opts.duration || 12)));
+  const font = process.platform === "win32" ? "C\\\\\\:/Windows/Fonts/arial.ttf" : "Arial";
+  const esc = (s: string) => String(s || "")
+    .replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\r?\n/g, " ");
+  const words = String(opts.description || "").split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let line = "";
+  for (const w of words) {
+    if ((line + " " + w).trim().length > 42) { if (line) lines.push(line.trim()); line = w; }
+    else line = (line + " " + w).trim();
+    if (lines.length >= 4) break;
+  }
+  if (line && lines.length < 4) lines.push(line);
+  const filters = [
+    `drawtext=fontfile=${font}:text='${esc(opts.title)}':fontcolor=white:fontsize=${W >= 1920 ? 76 : 56}:x=(w-text_w)/2:y=h/2-170:box=1:boxcolor=black@0.35:boxborderw=20`,
+    ...lines.map((l, i) => `drawtext=fontfile=${font}:text='${esc(l)}':fontcolor=0xE9D5FF:fontsize=${W >= 1920 ? 40 : 30}:x=(w-text_w)/2:y=h/2-40+${i}*50`),
+  ];
+  const args: string[] = ["-y", "-f", "lavfi", "-i", `color=c=0x120b24:s=${W}x${H}:d=${dur}:r=30`];
+  const music = opts.musicPath ? await fs.stat(opts.musicPath).then(() => opts.musicPath).catch(() => null) : null;
+  if (music) args.push("-stream_loop", "-1", "-i", music);
+  args.push("-vf", filters.join(","), "-map", "0:v:0");
+  if (music) args.push("-map", "1:a?", "-c:a", "aac", "-b:a", "160k", "-shortest");
+  else args.push("-an");
+  args.push("-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p", "-movflags", "+faststart", opts.output);
+  const r = await runProcess(FFMPEG, args);
+  if (r.code !== 0) throw new Error(`Prompt video render failed: ${String(r.stderr).slice(-600)}`);
+  return opts.output;
+}
+
 /** Build a Ken Burns slideshow video from local images, optionally with looping music. */
 export async function createImageSlideshow(opts: {
   images: string[];

@@ -36,7 +36,7 @@ export default function AiVideoClient() {
   }
 
   async function create() {
-    if (!files.length) { setError("Pilih minimal satu foto atau video."); return; }
+    if (!prompt.trim() && !files.length) { setError("Isi prompt atau pilih minimal satu foto/video."); return; }
     setBusy(true); setError(null);
     try {
       const fd = new FormData();
@@ -75,8 +75,8 @@ export default function AiVideoClient() {
             <label className="block rounded-xl border border-dashed border-white/15 bg-white/[0.02] p-5 text-center cursor-pointer hover:border-violet-400/40 transition">
               <input type="file" accept="image/*,video/*" multiple className="hidden" onChange={e=>setFiles(Array.from(e.target.files || []))} />
               <ImagePlus size={20} className="mx-auto mb-2 text-violet-300" />
-              <div className="text-sm text-zinc-200">{files.length ? `${files.length} file dipilih` : "Klik untuk pilih foto atau video"}</div>
-              <div className="text-xs text-zinc-500 mt-1">Bisa multiple. Gambar ≥1 → slideshow animasi; video → diproses sebagai project video.</div>
+              <div className="text-sm text-zinc-200">{files.length ? `${files.length} file dipilih` : "Opsional — klik untuk pilih foto/video"}</div>
+              <div className="text-xs text-zinc-500 mt-1">Bisa dikosongkan. Tanpa file → video dibuat dari prompt (motion typography + AI narration). Gambar → slideshow animasi; video → diproses masuk project.</div>
             </label>
             {files.length > 0 && (
               <div className="flex flex-wrap gap-2">
@@ -120,7 +120,7 @@ export default function AiVideoClient() {
           )}
 
           <div className="text-xs text-zinc-500 leading-relaxed border-t border-white/10 pt-3">
-            Fungsi nyata: gambar dirangkai jadi video dengan efek zoom halus (Ken Burns) + musik lokal; video diproses masuk project. Judul/deskripsi dibuat oleh AI aktif bila tersedia. <b>Text-to-video penuh belum tersedia</b> di perangkat ini — itu tidak saya klaim sebagai fitur.
+            Fungsi nyata: <b>tanpa file</b> → prompt jadi video motion-typography (judul + narasi AI, latar animatif, musik). <b>Dengan gambar</b> → slideshow zoom halus + musik. <b>Dengan video</b> → masuk project. Text-to-video sinematik penuh (adegan baru dari teks) belum tersedia di perangkat ini — tidak saya klaim.
           </div>
         </Card>
       </div>
