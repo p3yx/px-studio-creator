@@ -100,9 +100,13 @@ export default function ProjectDetailClient({ id }: { id: string }) {
         </div>
         {p.clips?.length ? <div className={`grid ${p.type === 'montage' && p.clips.length === 1 ? 'md:grid-cols-1 max-w-4xl' : 'md:grid-cols-2 xl:grid-cols-3'} gap-4 lg:gap-5`}>{p.clips.map((c:any)=>{
           const src = c.downloadUrl || p.outputUrl || null;
+          const isImage = p.type === 'ai-image' || /\.(png|jpe?g|webp|gif)$/i.test(String(src || ''));
           return <Card key={c.id} className="p-4 sm:p-5 space-y-4 interactive-card">
             <div className="aspect-video bg-black/50 rounded-xl overflow-hidden border border-white/10 flex items-center justify-center">
-              {src ? <video src={src} controls className="w-full h-full object-contain" preload="metadata" /> : <div className="text-zinc-500 text-sm px-4 text-center">Status: {c.status || 'pending'}</div>}
+              {src ? (isImage
+                ? <img src={src} alt={c.title || 'Gambar AI'} className="w-full h-full object-contain" />
+                : <video src={src} controls className="w-full h-full object-contain" preload="metadata" />
+              ) : <div className="text-zinc-500 text-sm px-4 text-center">Status: {c.status || 'pending'}</div>}
             </div>
             <div className="space-y-1.5">
               <div className="flex items-start gap-1.5">
@@ -119,12 +123,12 @@ export default function ProjectDetailClient({ id }: { id: string }) {
               </div>
             </div>
             <div className="flex flex-wrap gap-2 text-xs text-zinc-400">
-              <Badge>{c.category || (p.type === 'montage' ? 'Montage' : 'Clip')}</Badge><span>{formatDuration(c.duration)}</span>{c.resolution && <span>{c.resolution}</span>}{c.fileSize && <span>{formatBytes(c.fileSize)}</span>}{c.relevance!=null && p.type !== 'montage' && <span>Score {Math.round(c.relevance)}</span>}
+              <Badge>{c.category || (isImage ? 'Gambar' : p.type === 'montage' ? 'Montage' : 'Clip')}</Badge><span>{formatDuration(c.duration)}</span>{c.resolution && <span>{c.resolution}</span>}{c.fileSize && <span>{formatBytes(c.fileSize)}</span>}{c.relevance!=null && p.type !== 'montage' && <span>Score {Math.round(c.relevance)}</span>}
             </div>
             <div className="flex flex-wrap gap-2">
-              {src && <a href={src} download className="inline-flex"><Button variant="secondary"><Download size={15}/> Download MP4</Button></a>}
+              {src && <a href={src} download className="inline-flex"><Button variant="secondary"><Download size={15}/> {isImage ? 'Download Gambar' : 'Download MP4'}</Button></a>}
               {c.subtitleUrl && <a href={c.subtitleUrl} download className="inline-flex"><Button variant="secondary">Download SRT</Button></a>}
-              <Button
+              {!isImage && <Button
                 variant="secondary"
                 onClick={async ()=>{
                   setCaptionBusy(c.id);
@@ -141,7 +145,7 @@ export default function ProjectDetailClient({ id }: { id: string }) {
                 disabled={captionBusy === c.id}
               >
                 {captionBusy === c.id ? 'Generating...' : (c.subtitleUrl ? 'Regenerate Captions' : 'Generate Captions')}
-              </Button>
+              </Button>}
               {p.type === 'montage' && <Link href="/ai-studio/montage" className="inline-flex"><Button variant="secondary"><Clapperboard size={15}/> Open Montage Maker</Button></Link>}
             </div>
             {p.type !== 'montage' && <div className="text-xs text-zinc-500">{formatDuration(c.startTime)} - {formatDuration(c.endTime)} · Status: {c.status}{c.subtitleUrl ? ' · Caption siap' : ''}</div>}
