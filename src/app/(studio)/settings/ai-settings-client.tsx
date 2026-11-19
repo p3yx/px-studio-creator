@@ -204,7 +204,10 @@ export default function AiSettingsClient() {
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok || j.ok === false) throw new Error(j.error || "Aksi provider gagal");
-      if (action === "models" && Array.isArray(j.models)) setModels(j.models);
+      if (action === "models") {
+        if (Array.isArray(j.models)) setModels(j.models);
+        if (j.error) throw new Error(String(j.error));
+      }
       if (action === "activate") {
         await loadModels(true).catch(() => {});
         const s = await loadSettings();
@@ -321,7 +324,7 @@ export default function AiSettingsClient() {
               </div>
               <div className="space-y-1"><label className="text-xs text-zinc-400">Nama</label><input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} className="w-full h-9 rounded-lg border border-white/10 bg-white/[0.03] px-3 text-sm" /></div>
               <div className="space-y-1 sm:col-span-2"><label className="text-xs text-zinc-400">Base URL (boleh dikosongkan untuk preset resmi)</label><input value={form.baseUrl} onChange={e=>setForm(f=>({...f,baseUrl:e.target.value}))} placeholder="https://..." className="w-full h-9 rounded-lg border border-white/10 bg-white/[0.03] px-3 text-sm" /></div>
-              <div className="space-y-1 sm:col-span-2"><label className="text-xs text-zinc-400">API Key</label><input type="password" value={form.apiKey} onChange={e=>setForm(f=>({...f,apiKey:e.target.value}))} placeholder="sk-..." className="w-full h-9 rounded-lg border border-white/10 bg-white/[0.03] px-3 text-sm" /></div>
+              <div className="space-y-1 sm:col-span-2"><label className="text-xs text-zinc-400">API Key</label><input type="password" value={form.apiKey} onChange={e=>setForm(f=>({...f,apiKey:e.target.value}))} placeholder="sk-... / AIza..." className="w-full h-9 rounded-lg border border-white/10 bg-white/[0.03] px-3 text-sm" /><div className="text-[10px] text-zinc-500">Gemini: kunci dari Google AI Studio diawali <code>AIza</code> (±39 karakter). Awalan seperti <code>API key:</code> otomatis dibuang. Jangan isi hanya teks "API".</div></div>
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={()=>setShowAdd(false)}>Batal</Button>

@@ -71,6 +71,13 @@ function presetFor(type: string) {
   return PROVIDER_PRESETS.find(p => p.type === type);
 }
 
+function normalizeApiKey(raw: string) {
+  let key = String(raw || "").trim();
+  key = key.replace(/^(api[\s_-]?key|key|token|secret)\s*[:=]\s*/i, "").trim();
+  key = key.replace(/^["'`]+|["'`]+$/g, "").trim();
+  return key.split(/\s+/)[0] || "";
+}
+
 export async function listProviders(): Promise<ProviderConfig[]> {
   const raw = await getSetting("aiProvidersConfig");
   let saved: ProviderConfig[] = [];
@@ -83,7 +90,7 @@ export async function getProvider(id?: string | null): Promise<ProviderConfig> {
   const target = explicit || String((await getSetting("aiActiveProvider")) || "");
   const all = await listProviders();
   const found = target ? all.find(p => p.id === target) : all[0];
-  if (found) return found;
+  if (found) return { ...found, apiKey: normalizeApiKey(found.apiKey) };
   if (explicit) throw new Error(`Provider tidak ditemukan: ${target}`);
   return EMPTY_PROVIDER;
 }
@@ -99,7 +106,7 @@ export async function upsertProvider(input: Partial<ProviderConfig> & { id?: str
     name: String(input.name || preset?.name || "Custom Provider").trim(),
     type: (preset?.type || "custom_gateway") as ProviderType,
     baseUrl: cleanBaseUrl(String(input.baseUrl || preset?.baseUrl || "")),
-    apiKey: String(input.apiKey || "").trim(),
+    apiKey: normalizeApiKey(input.apiKey || ""),
     enabled: input.enabled !== false,
     createdAt: String(input.createdAt || new Date().toISOString()),
   };
@@ -354,8 +361,8 @@ async function geminiChat(baseUrl: string, apiKey: string, modelId: string, mess
     generationConfig: { temperature: opts.temperature ?? 0.2, ...(opts.maxTokens ? { maxOutputTokens: opts.maxTokens } : {}), ...(opts.json ? { responseMimeType: "application/json" } : {}) },
   };
   if (system) body.systemInstruction = { parts: [{ text: system }] };
-  const url = `${baseUrl}/models/${encodeURIComponent(modelId)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-  const res = await requestWithTimeout(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, Number(opts.timeout || 45000));
+  const url = `${baseUrl}/models/${encodeURIComponent(modelId)}:generateContent`;
+  const res = await requestWithTimeout(url, { method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey }, body: JSON.stringify(body) }, Number(opts.timeout || 45000));
   const text = await res.text();
   let data: any = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
   if (!res.ok) throw new Error(data?.error?.message || data?.message || `Gemini request failed (${res.status})`);
@@ -411,10 +418,10 @@ export async function listModelsForProvider(id?: string | null) {
     } catch {}
     return { models: presetModels, lastUpdated: null, fromCache: true, preset: true };
   }
-  const headers = provider.type === "google_gemini" ? {} : authHeaders(provider.apiKey);
-  const url = provider.type === "google_gemini"
-    ? `${baseUrl}/models?key=${encodeURIComponent(provider.apiKey)}`
-    : `${baseUrl}/models`;
+  const headers = provider.type === "google_gemini"
+    ? { "x-goog-api-key": provider.apiKey }
+    : authHeaders(provider.apiKey);
+  const url = `${baseUrl}/models`;
   try {
     const res = await requestWithTimeout(url, { method: "GET", headers }, 20000);
     const text = await res.text();
