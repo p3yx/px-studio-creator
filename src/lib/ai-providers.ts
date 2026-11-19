@@ -80,7 +80,7 @@ export const CAPABILITY_LABELS: Record<Capability, string> = {
 // Defaults mirror academy-creator-php includes/gemini.php
 export const CAPABILITY_PREFERRED: Record<Capability, string[]> = {
   text: ["gemini-4-hydrogen", "gemini-3.1-pro-preview", "gemini-2.5-flash"],
-  image: ["gemini-nano-banana-2.1", "gemini-3.1-flash-image", "imagen"],
+  image: ["gemini-3.1-flash-image", "gemini-nano-banana-2.1", "imagen"],
   video: ["gemini-omni-1.2-flash", "gemini-omni-1.1-flash", "gemini-omni-flash-preview"],
   multimodal: ["gemini-4-hydrogen", "gemini-2.5-flash"],
   stt: ["gemini-3.5-transcribe", "gemini-3.1-flash-tts-preview"],

@@ -59,6 +59,30 @@ export async function saveImageResult(img: { kind: "base64" | "uri"; data?: stri
   throw new Error("Hasil gambar Gemini tidak ditemukan.");
 }
 
+export async function editGeminiImage(opts: { imagePath: string; prompt: string; aspect?: string; size?: string }) {
+  const model = await getModelForCapability("image");
+  if (!model) throw new Error("Model image Gemini belum dipilih.");
+  const buf = await fs.readFile(opts.imagePath);
+  const ext = (opts.imagePath.toLowerCase().split(".").pop() || "png");
+  const mime = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : ext === "webp" ? "image/webp" : "image/png";
+  const payload = {
+    model,
+    input: [
+      { type: "image", data: buf.toString("base64"), mime_type: mime },
+      { type: "text", text: opts.prompt },
+    ],
+    response_format: {
+      type: "image",
+      aspect_ratio: opts.aspect || "16:9",
+      image_size: opts.size || "1K",
+    },
+  };
+  const result: any = await geminiApi("interactions", { method: "POST", body: JSON.stringify(payload) }, 180000);
+  const image = await extractImageResult(result);
+  if (!image) throw new Error("Model tidak mengembalikan gambar hasil edit.");
+  return { model, image, interactionId: String(result?.id || "") };
+}
+
 export async function generateGeminiImage(opts: { prompt: string; aspect?: string; size?: string }) {
   const model = await getModelForCapability("image");
   if (!model) throw new Error("Model image Gemini belum dipilih.");

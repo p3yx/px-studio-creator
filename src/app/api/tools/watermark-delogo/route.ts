@@ -5,6 +5,7 @@ import crypto from "crypto";
 import { getCurrentUser } from "@/lib/auth";
 import { STORAGE_ROOT, publicFileUrl } from "@/lib/storage";
 import { probeVideo, runProcess } from "@/lib/ffmpeg";
+import { editGeminiImage, saveImageResult } from "@/lib/gemini-interactions";
 
 export const runtime = "nodejs";
 
@@ -39,9 +40,43 @@ export async function POST(req: NextRequest) {
     const outPath = path.join(dir, `${mode}-${id}.mp4`);
     await fs.writeFile(inPath, Buffer.from(await video.arrayBuffer()));
 
-    const meta = await probeVideo(inPath).catch(() => ({ width: null, height: null } as any));
+    const ff = process.env.FFMPEG_PATH || "ffmpeg";
+    const meta = await probeVideo(inPath).catch(() => ({ width: null, height: null, duration: null } as any));
     const iw = Math.max(2, Number(meta?.width || 1920));
     const ih = Math.max(2, Number(meta?.height || 1080));
+
+    // AI method: edit a single frame with Gemini image model (honest, frame-level).
+    if (method === "ai") {
+      const ts = clamp(Number(form.get("time") || 1.5), 0, Math.max(0, Number(meta?.duration || 30) - 0.1));
+      const framePath = path.join(dir, `frame-${id}.jpg`);
+      const fr = await runProcess(ff, ["-y", "-ss", String(ts), "-i", inPath, "-frames:v", "1", "-q:v", "2", framePath]);
+      if (fr.code !== 0) {
+        await fs.unlink(inPath).catch(() => {});
+        return NextResponse.json({ error: `Gagal mengambil frame: ${String(fr.stderr).slice(-300)}` }, { status: 500 });
+      }
+      try {
+        const edited = await editGeminiImage({
+          imagePath: framePath,
+          prompt: "Remove the watermark, logo, or overlaid text from this image. Inpaint the area cleanly using the surrounding pixels. Do NOT blur the whole image and do NOT change anything else. Return the cleaned image.",
+          aspect: iw >= ih ? "16:9" : "9:16",
+        });
+        const outImage = path.join(dir, `ai-${id}.png`);
+        await saveImageResult(edited.image, outImage);
+        const st = await fs.stat(outImage).catch(() => null);
+        await fs.unlink(framePath).catch(() => {});
+        await fs.unlink(inPath).catch(() => {});
+        return NextResponse.json({
+          ok: true, mode, method: "ai", kind: "image",
+          fileUrl: publicFileUrl(outImage), fileSize: st?.size || null,
+          note: `AI (${edited.model}) menghapus watermark pada frame ${ts.toFixed(1)} detik. Ini hasil gambar per-frame, bukan seluruh video.`,
+          config: { time: ts, source: { width: iw, height: ih } },
+        });
+      } catch (e: any) {
+        await fs.unlink(framePath).catch(() => {});
+        await fs.unlink(inPath).catch(() => {});
+        return NextResponse.json({ error: e?.message || "AI gagal menghapus watermark" }, { status: 500 });
+      }
+    }
 
     // delogo requires the region strictly inside the frame with >=1px margin from borders
     let dx = Math.max(1, Math.round((iw * xP) / 100));
@@ -58,7 +93,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Area terlalu kecil/di tepi frame. Pilih area yang berada di dalam frame." }, { status: 400 });
     }
 
-    const ff = process.env.FFMPEG_PATH || "ffmpeg";
     let note = "";
     let r: { code: number; stdout: string; stderr: string } = { code: 1, stdout: "", stderr: "" };
     const enc = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart"];

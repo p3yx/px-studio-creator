@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Card, Button, Input, Select } from "@/components/ui";
 import { Film, Loader2, Eraser, Eye, Download, Info, Play, ShieldAlert, Wand2 } from "lucide-react";
 
-type Method = "delogo" | "delogo_blur";
+type Method = "delogo" | "ai";
 type Rect = { x: number; y: number; w: number; h: number };
 
 export default function WatermarkDelogoClient() {
@@ -12,6 +12,7 @@ export default function WatermarkDelogoClient() {
   const [method, setMethod] = useState<Method>("delogo");
   const [rect, setRect] = useState<Rect>({ x: 70, y: 80, w: 20, h: 12 });
   const [blur, setBlur] = useState(8);
+  const [aiTime, setAiTime] = useState("1.5");
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -77,11 +78,12 @@ export default function WatermarkDelogoClient() {
     if (!video) { setError("Pilih video terlebih dahulu."); return; }
     setBusy(true); setError(null); setNotice(null); setProgress("Preparing video...");
     try {
-      setProgress(method === "delogo" ? "Processing (Delogo, FFmpeg)..." : "Processing (Delogo + Blur, FFmpeg)...");
+      setProgress(method === "delogo" ? "Processing (Delogo tanpa blur, FFmpeg)..." : "Processing (AI Gemini, satu frame)...");
       const fd = new FormData();
       fd.append("video", video);
       fd.append("method", method);
       fd.append("mode", mode);
+      if (method === "ai") fd.append("time", aiTime);
       fd.append("x", String(Math.round(rect.x * 100) / 100));
       fd.append("y", String(Math.round(rect.y * 100) / 100));
       fd.append("w", String(Math.round(rect.w * 100) / 100));
@@ -127,21 +129,24 @@ export default function WatermarkDelogoClient() {
           <div className="grid sm:grid-cols-2 gap-4">
             <div className="space-y-1"><label className="text-sm text-zinc-300">Metode</label>
               <Select value={method} onChange={e => setMethod(e.target.value as Method)}>
-                <option value="delogo">Delogo (rekonstruksi dari tepi area — tanpa bayangan)</option>
-                <option value="delogo_blur">Delogo + Blur Tipis (lembut, untuk logo besar/tebal)</option>
+                <option value="delogo">Delogo — rekonstruksi tepi, TANPA blur</option>
+                <option value="ai">AI (Gemini) — hapus watermark pada 1 frame</option>
               </Select>
             </div>
-            {method === "delogo_blur" && (
-              <div className="space-y-1"><label className="text-sm text-zinc-300">Intensitas Blur (2-20)</label>
-                <Input type="number" value={blur} onChange={e => setBlur(Math.max(2, Math.min(20, Number(e.target.value || 2))))} />
+            {method === "ai" && (
+              <div className="space-y-1"><label className="text-sm text-zinc-300">Detik frame yang dihapus (AI)</label>
+                <Input type="number" min={0} step={0.5} value={aiTime} onChange={e => setAiTime(e.target.value)} />
               </div>
+            )}
+            {method === "delogo" && (
+              <div className="text-xs text-zinc-500 self-end pb-2">Area delogo diisi dari piksel tepi — tidak ada blur, tidak ada bayangan.</div>
             )}
           </div>
 
           <div className="rounded-xl border border-white/10 bg-white/[0.03] text-sm px-4 py-3 flex gap-2">
             <Info size={16} className="shrink-0 mt-0.5" />
             <div>
-              <b>Delogo</b> mengisi area yang dipilih dengan interpolasi piksel dari tepi sekelilingnya (filter FFmpeg untuk menghapus logo TV) — bukan blur, jadi tidak menyisakan siluet/bayangan watermark. <b>Delogo + Blur</b> menambahkan blur sangat tipis di area yang sama agar tekstur lebih halus untuk logo besar. Pilih area tepat di atas watermark (sedikit lebih besar 1-2%).
+              <b>Delogo</b> mengisi area yang dipilih dengan interpolasi piksel dari tepi sekelilingnya — <b>totally tanpa blur</b>, jadi tidak ada siluet/bayangan. <b>AI (Gemini)</b> mengedit satu frame agar watermark hilang dengan inpainting (hasil gambar, bukan video penuh). Pilih area tepat di atas watermark untuk delogo.
             </div>
           </div>
 
@@ -196,13 +201,13 @@ export default function WatermarkDelogoClient() {
         <Card className="p-5 sm:p-6 space-y-4">
           <div className="flex items-center justify-between gap-2">
             <div className="font-medium">Preview Before / After</div>
-            {result?.fileUrl && <button type="button" onClick={() => setShowCompare(s => !s)} className="text-xs px-2.5 h-8 rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/[0.06]">{showCompare ? "Tutup Compare" : "Buka Compare"}</button>}
+            {result?.fileUrl && result?.kind !== "image" && <button type="button" onClick={() => setShowCompare(s => !s)} className="text-xs px-2.5 h-8 rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/[0.06]">{showCompare ? "Tutup Compare" : "Buka Compare"}</button>}
           </div>
           {!result?.fileUrl ? (
             <div className="text-sm text-zinc-500 py-10 text-center space-y-2"><Play size={22} className="mx-auto text-zinc-600" /><div>Belum ada hasil. Pilih area &amp; metode, lalu klik <b>Preview Hasil</b> atau <b>Apply &amp; Export</b>.</div></div>
           ) : (
             <div className="space-y-4">
-              {showCompare && videoUrl ? (
+              {showCompare && videoUrl && result?.kind !== "image" ? (
                 <div className="space-y-2">
                   <div className="relative aspect-video bg-black/50 rounded-xl overflow-hidden border border-white/10">
                     <video src={result.fileUrl} className="absolute inset-0 w-full h-full object-contain" controls />
@@ -216,8 +221,10 @@ export default function WatermarkDelogoClient() {
                   <div className="text-xs text-zinc-500">Geser slider untuk perbandingan Before/After.</div>
                 </div>
               ) : (
-                <div className="aspect-video bg-black/50 rounded-xl overflow-hidden border border-white/10">
-                  <video key={result.fileUrl} src={result.fileUrl} controls className="w-full h-full object-contain" />
+                <div className="aspect-video bg-black/50 rounded-xl overflow-hidden border border-white/10 flex items-center justify-center">
+                  {result?.kind === "image"
+                    ? <img key={result.fileUrl} src={result.fileUrl} alt="Hasil hapus watermark AI" className="w-full h-full object-contain" />
+                    : <video key={result.fileUrl} src={result.fileUrl} controls className="w-full h-full object-contain" />}
                 </div>
               )}
               <div className="text-xs text-zinc-400">{result.mode === "apply" ? "Hasil Apply/Export (file terpisah, video asli tidak diubah). " : "Hasil Preview. "}{result.note || ""}</div>
