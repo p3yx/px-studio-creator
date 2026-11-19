@@ -5,6 +5,8 @@ import { analyzeVideoForHighlights } from "./analysis";
 import { renderClip, probeVideo, generateThumbnail, convertResizeVideo, createImageSlideshow, createPromptVideo, ensureAutoMusicTrack } from "./ffmpeg";
 import { runTaskChat } from "./ai-providers";
 import { geminiVideoAvailable, startGeminiVideo, pollGeminiVideo, saveGeminiVideo } from "./gemini-video";
+import { renderEditorTimeline } from "./editor-render";
+import { normalizeTimeline } from "./editor";
 import { clipsDir, tempDir, ensureProjectDirs } from "./storage";
 import { safeJsonParse } from "./utils";
 import { buildMontagePlan, renderMontage } from "./montage";
@@ -406,10 +408,43 @@ async function processAiVideoJob(job: any) {
   return out;
 }
 
+async function processEditorJob(job: any) {
+  const project = await prisma.project.findUnique({ where: { id: job.projectId } });
+  if (!project) throw new Error("Project missing");
+  const payload: any = safeJsonParse(job.payloadJson, {});
+  const timeline = normalizeTimeline(payload.timeline);
+  const cfg: any = safeJsonParse(project.configJson, {});
+  cfg.timeline = timeline;
+  await prisma.project.update({ where: { id: project.id }, data: { configJson: JSON.stringify(cfg), status: "RENDERING", errorMessage: null } });
+  await updateJob(job.id, { status: "RENDERING", stage: "Rendering", progress: 10, startedAt: new Date(), error: null });
+  const out = path.join(clipsDir(project.id), "editor-output.mp4");
+  const result = await renderEditorTimeline({
+    timeline, workDir: tempDir(project.id), output: out,
+    onProgress: async (stage, progress) => updateJob(job.id, { stage, progress: 10 + Math.round(progress * 0.85) }),
+  });
+  const st = await fs.stat(out).catch(() => null);
+  await prisma.clip.deleteMany({ where: { projectId: project.id } });
+  await prisma.clip.create({
+    data: {
+      projectId: project.id, title: project.name || "Video Editor",
+      description: "Hasil render dari timeline editor.",
+      startTime: 0, endTime: result.duration, duration: result.duration,
+      outputPath: out, fileSize: st?.size || null, status: "completed",
+      resolution: `${timeline.width}x${timeline.height}`,
+    },
+  });
+  await updateProject(project.id, { status: "COMPLETED", outputPath: out, outputDuration: result.duration, outputSize: st?.size || null });
+  await updateJob(job.id, { status: "COMPLETED", stage: "Completed", progress: 100, finishedAt: new Date(), resultJson: JSON.stringify({ outputPath: out }) });
+  return out;
+}
+
 async function processJob(job: any) {
   const project = await prisma.project.findUnique({ where: { id: job.projectId }, include: { clips: true } });
   if (!project) throw new Error("Project missing");
   const p: any = project;
+  if (p.type === "editor" || job.type === "editor") {
+    return processEditorJob(job);
+  }
   if (p.type === "ai-video" || job.type === "ai_video") {
     return processAiVideoJob(job);
   }
