@@ -9,7 +9,7 @@ type Created = { projectId: string; jobId: string } | null;
 export default function AiVideoClient() {
   const router = useRouter();
   const [prompt, setPrompt] = useState("Buat video cinematic dari foto-foto ini, transisi halus dan nuansa dramatis.");
-  const [name, setName] = useState("AI Video dari Gambar");
+  const [name, setName] = useState("");
   const [aspect, setAspect] = useState("9:16");
   const [seconds, setSeconds] = useState("3");
   const [music, setMusic] = useState(true);
@@ -61,9 +61,10 @@ export default function AiVideoClient() {
     if (!prompt.trim() && !files.length) { setError("Isi prompt atau pilih minimal satu foto/video."); return; }
     setBusy(true); setError(null);
     try {
+      const finalName = name.trim() || (prompt.trim().replace(/\s+/g, " ").slice(0, 80) || "AI Video");
       const fd = new FormData();
       fd.append("prompt", prompt);
-      fd.append("name", name);
+      fd.append("name", finalName);
       fd.append("aspect", aspect);
       fd.append("secondsPerImage", seconds);
       fd.append("music", music ? "1" : "0");
@@ -113,7 +114,7 @@ export default function AiVideoClient() {
           </div>
 
           <div className="grid sm:grid-cols-2 gap-4">
-            <div className="space-y-2"><label className="text-sm text-zinc-300">Nama Project</label><Input value={name} onChange={e=>setName(e.target.value)} /></div>
+            <div className="space-y-2"><label className="text-sm text-zinc-300">Nama Project (opsional)</label><Input value={name} onChange={e=>setName(e.target.value)} placeholder="Kosongkan untuk pakai judul dari prompt" /></div>
             <div className="space-y-2"><label className="text-sm text-zinc-300">Rasio</label><Select value={aspect} onChange={e=>setAspect(e.target.value)}><option value="9:16">9:16 (Vertikal)</option><option value="16:9">16:9 (Horizontal)</option><option value="1:1">1:1 (Persegi)</option></Select></div>
             <div className="space-y-2"><label className="text-sm text-zinc-300">Durasi per Gambar (detik)</label><Input type="number" min={1.5} max={10} step={0.5} value={seconds} onChange={e=>setSeconds(e.target.value)} /></div>
             <div className="flex items-end gap-2 pb-2">

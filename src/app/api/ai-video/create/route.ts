@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const form = await req.formData();
     const prompt = String(form.get("prompt") || "").trim();
-    const name = String(form.get("name") || "").trim() || "AI Video";
+    const name = String(form.get("name") || "").trim() || prompt.replace(/\s+/g, " ").slice(0, 80) || "AI Video";
     const aspect = ["9:16", "16:9", "1:1"].includes(String(form.get("aspect"))) ? String(form.get("aspect")) : "9:16";
     const secondsPerImage = Math.max(1.5, Math.min(10, Number(form.get("secondsPerImage") || 3)));
     const music = String(form.get("music") || "1") === "1";
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
       data: {
         projectId: project.id,
         title: name,
-        description: `Dibuat dari prompt: ${prompt.slice(0, 200)}`,
+        description: `Sedang dibuat dari prompt: ${prompt.slice(0, 200)}`,
         startTime: 0,
         endTime: images.length ? images.length * secondsPerImage : promptDuration,
         duration: images.length ? images.length * secondsPerImage : promptDuration,
