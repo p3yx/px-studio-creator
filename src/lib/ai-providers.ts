@@ -67,6 +67,62 @@ export const EMPTY_PROVIDER: ProviderConfig = {
   createdAt: "",
 };
 
+export type Capability = "text" | "image" | "video" | "multimodal" | "stt" | "tts";
+export const CAPABILITIES: Capability[] = ["text", "image", "video", "multimodal", "stt", "tts"];
+export const CAPABILITY_LABELS: Record<Capability, string> = {
+  text: "Text / Prompt Writer / Agent",
+  image: "Image Generation",
+  video: "Video Generation",
+  multimodal: "Image & Video Understanding",
+  stt: "Speech to Text",
+  tts: "Text to Speech",
+};
+// Defaults mirror academy-creator-php includes/gemini.php
+export const CAPABILITY_PREFERRED: Record<Capability, string[]> = {
+  text: ["gemini-4-hydrogen", "gemini-3.1-pro-preview", "gemini-2.5-flash"],
+  image: ["gemini-nano-banana-2.1", "gemini-3.1-flash-image", "imagen"],
+  video: ["gemini-omni-1.2-flash", "gemini-omni-1.1-flash", "gemini-omni-flash-preview"],
+  multimodal: ["gemini-4-hydrogen", "gemini-2.5-flash"],
+  stt: ["gemini-3.5-transcribe", "gemini-3.1-flash-tts-preview"],
+  tts: ["gemini-2.5-flash-preview-tts", "gemini-3.1-flash-tts-preview", "gemini-3.8-flash-tts"],
+};
+
+function capPattern(cap: Capability) {
+  switch (cap) {
+    case "image": return /image|imagen|banana|flash-image|nano-banana/i;
+    case "video": return /omni|veo|video/i;
+    case "stt": return /transcribe|speech.?to.?text|asr/i;
+    case "tts": return /tts|text.?to.?speech/i;
+    default: return /gemini|flash|pro|hydrogen/i;
+  }
+}
+
+export async function getCapabilityModels(): Promise<Partial<Record<Capability, string>>> {
+  const raw = await getSetting("aiCapabilityModels");
+  try { return raw ? JSON.parse(raw) : {}; } catch { return {}; }
+}
+
+export async function saveCapabilityModels(map: Partial<Record<Capability, string>>) {
+  const clean: any = {};
+  for (const c of CAPABILITIES) if (map[c]) clean[c] = String(map[c]).trim();
+  await setSetting("aiCapabilityModels", JSON.stringify(clean));
+  return clean;
+}
+
+export async function getModelForCapability(cap: Capability): Promise<string> {
+  const provider = await getProvider();
+  if (provider.type !== "google_gemini") return getActiveModelId();
+  const saved = await getCapabilityModels();
+  if (saved[cap]) return String(saved[cap]);
+  let models: string[] = [];
+  try { models = (await listModelsForProvider(provider.id)).models; } catch {}
+  const preferred = CAPABILITY_PREFERRED[cap].find(m => models.includes(m));
+  if (preferred) return preferred;
+  const match = models.find(m => capPattern(cap).test(m));
+  if (match) return match;
+  return getActiveModelId();
+}
+
 function presetFor(type: string) {
   return PROVIDER_PRESETS.find(p => p.type === type);
 }
@@ -562,8 +618,16 @@ export async function resolveTaskConfig(task: TaskKey | string) {
   };
 }
 
+function capabilityForTask(task: string): Capability {
+  if (task === "highlight_detection" || task === "vision_analysis") return "multimodal";
+  if (task === "speech_to_text") return "stt";
+  if (task === "text_to_speech") return "tts";
+  return "text";
+}
+
 export async function runTaskChat(task: TaskKey | string, messages: any[], opts: any = {}) {
-  const modelId = String(opts.model || (await getActiveModelId()) || "").trim();
+  const cap = capabilityForTask(String(task));
+  const modelId = String(opts.model || (await getModelForCapability(cap)) || (await getActiveModelId()) || "").trim();
   if (!modelId) throw new Error("AI model belum dipilih. Buka Settings dan pilih model AI.");
   const start = Date.now();
   try {

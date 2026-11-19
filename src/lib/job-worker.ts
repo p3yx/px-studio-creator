@@ -345,6 +345,7 @@ async function processAiVideoJob(job: any) {
 
   // Prefer real AI video generation when the active provider is Gemini native.
   let usedGemini = false;
+  let aiModelLabel = "Gemini video";
   if (config.prompt && (await geminiVideoAvailable())) {
     try {
       await updateJob(job.id, { stage: "AI Video Generating", progress: 30 });
@@ -355,6 +356,7 @@ async function processAiVideoJob(job: any) {
         aspect: config.aspect || "9:16",
         durationSeconds: Number(config.promptDuration || Number(config.secondsPerImage || 3) * 4),
       });
+      aiModelLabel = started.model || aiModelLabel;
       if (started.interactionId) {
         for (let i = 0; i < 90; i++) {
           await new Promise(r => setTimeout(r, 10000));
@@ -394,7 +396,7 @@ async function processAiVideoJob(job: any) {
   }
 
   const st = await fs.stat(out).catch(() => null);
-  const finalDescription = usedGemini ? `[Dibuat Gemini AI: ${String((config as any).aiVideoModel || "Gemini video")}] ${description}` : description;
+  const finalDescription = usedGemini ? `[Dibuat Gemini AI: ${aiModelLabel}] ${description}` : description;
   await prisma.clip.updateMany({
     where: { projectId: project.id },
     data: { status: "completed", outputPath: out, fileSize: st?.size || null, title, description: finalDescription, resolution: config.aspect === "16:9" ? "1920x1080" : "1080x1920" },

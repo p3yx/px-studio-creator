@@ -1,5 +1,5 @@
 import fs from "fs/promises";
-import { getProvider, listModelsForProvider } from "./ai-providers";
+import { getProvider, getModelForCapability } from "./ai-providers";
 
 function cleanBase(url: string) {
   return String(url || "").replace(/\/+$/, "");
@@ -32,12 +32,9 @@ async function api(pathname: string, init: RequestInit = {}, timeoutMs = 120000)
 }
 
 async function pickVideoModel() {
-  const provider = await getProvider();
-  let models: string[] = [];
-  try { models = (await listModelsForProvider(provider.id)).models; } catch {}
-  const match = models.find(m => /omni|veo|video/i.test(m));
-  if (!match) throw new Error("Model video Gemini tidak tersedia pada akun ini (cari model omni/veo/video).");
-  return match;
+  const model = await getModelForCapability("video");
+  if (!model) throw new Error("Model video Gemini belum dipilih.");
+  return model;
 }
 
 async function fileToBase64(p: string) {
@@ -70,6 +67,8 @@ export async function startGeminiVideo(input: {
   durationSeconds?: number;
 }) {
   const model = await pickVideoModel();
+  // Gemini video accepts only 16:9 or 9:16. Map 1:1 to 16:9 instead of failing.
+  const aspect = input.aspect === "1:1" ? "16:9" : (input.aspect || "16:9");
   const content: any[] = [];
   for (const img of (input.images || []).slice(0, 3)) {
     content.push({ type: "image", data: await fileToBase64(img), mime_type: mimeFor(img) });
@@ -83,7 +82,7 @@ export async function startGeminiVideo(input: {
     background: true,
     response_format: {
       type: "video",
-      aspect_ratio: input.aspect || "16:9",
+      aspect_ratio: aspect,
       duration: `${Math.max(5, Math.min(10, Number(input.durationSeconds || 10)))}s`,
       resolution: "720p",
     },

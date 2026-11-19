@@ -15,7 +15,17 @@ type AiSettings = {
   connectionError?: string | null;
   lastUpdated?: string | null;
   models?: string[];
+  capabilityModels?: Record<string, string>;
 };
+
+const CAPS = [
+  ["text", "Text / Prompt Writer / Agent"],
+  ["image", "Image Generation"],
+  ["video", "Video Generation"],
+  ["multimodal", "Image & Video Understanding"],
+  ["stt", "Speech to Text"],
+  ["tts", "Text to Speech"],
+] as const;
 
 type Provider = {
   id: string;
@@ -58,6 +68,7 @@ export default function AiSettingsClient() {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: "", type: "google_gemini", baseUrl: "", apiKey: "" });
   const [typeOpen, setTypeOpen] = useState(false);
+  const [capModels, setCapModels] = useState<Record<string, string>>({});
   const typeRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -76,6 +87,7 @@ export default function AiSettingsClient() {
     setProviders(Array.isArray(j.providers) ? j.providers : []);
     setModels(Array.isArray(j.models) ? j.models : []);
     setSelected(String(j.activeModel || j.defaultModel || ""));
+    setCapModels(j.capabilityModels || {});
     return j;
   }
 
@@ -135,6 +147,20 @@ export default function AiSettingsClient() {
     } catch (e: any) {
       setError(e?.message || "Gagal menyimpan model");
       setToast({ open: true, message: e?.message || "Gagal menyimpan model", type: "error" });
+    } finally { setSaving(false); }
+  }
+
+  async function saveCaps() {
+    setSaving(true); setError(null);
+    try {
+      const r = await fetch("/api/ai/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ capabilityModels: capModels }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.ok === false) throw new Error(j.error || "Gagal menyimpan model per fungsi");
+      await loadSettings();
+      setToast({ open: true, message: "Model per fungsi disimpan.", type: "success" });
+    } catch (e: any) {
+      setError(e?.message || "Gagal menyimpan model per fungsi");
+      setToast({ open: true, message: e?.message || "Gagal", type: "error" });
     } finally { setSaving(false); }
   }
 
@@ -355,6 +381,32 @@ export default function AiSettingsClient() {
                   {!active && <button type="button" onClick={()=>onProviderAction(p.id,"activate")} disabled={busy} className="text-[11px] px-2 h-7 rounded-md border border-violet-400/30 bg-violet-500/10 text-violet-200 hover:bg-violet-500/20 disabled:opacity-40">Aktifkan</button>}
                   <button type="button" onClick={()=>onProviderAction(p.id,"delete")} disabled={busy} className="text-[11px] px-2 h-7 rounded-md border border-red-500/25 bg-red-500/10 text-red-300 hover:bg-red-500/20 disabled:opacity-40">Hapus</button>
                 </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="pt-2 border-t border-white/10 space-y-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <div className="font-medium text-zinc-200">Model per Fungsi</div>
+            <div className="text-xs text-zinc-500 mt-0.5">Sama seperti Creator Academy: tiap tugas memakai model yang sesuai (Gemini native). Kosongkan untuk memakai rekomendasi otomatis.</div>
+          </div>
+          <Button variant="secondary" onClick={saveCaps} disabled={saving}>{saving ? "Menyimpan..." : "Simpan Model per Fungsi"}</Button>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-3">
+          {CAPS.map(([key, label]) => {
+            const cur = capModels[key] || "";
+            const opts = [...models];
+            if (cur && !opts.includes(cur)) opts.unshift(cur);
+            return (
+              <div key={key} className="space-y-1">
+                <label className="text-xs text-zinc-400">{label}</label>
+                <Select value={cur} onChange={e=>setCapModels(m=>({ ...m, [key]: e.target.value }))}>
+                  <option value="">Otomatis (rekomendasi)</option>
+                  {opts.map(m=><option key={m} value={m}>{m}</option>)}
+                </Select>
               </div>
             );
           })}
