@@ -1,13 +1,20 @@
 export const EDITOR_TOOLS = ["split", "setSpeed", "setEffect", "addText", "move", "trim", "delete", "addKeyframe", "duplicate", "rippleDelete", "setTransition", "setTrack"] as const;
-export const KEYFRAME_PROPERTIES = ["volume", "opacity"] as const;
+export const KEYFRAME_PROPERTIES = ["volume", "opacity", "scale", "x", "y"] as const;
 
 export type EditorKeyframe = {
   id: string;
   time: number;
-  property: "volume" | "opacity";
+  property: "volume" | "opacity" | "scale" | "x" | "y";
   value: number;
   interpolation: "linear" | "easeIn" | "easeOut" | "easeInOut";
 };
+
+export type EditorMotion = {
+  type: "none" | "zoomIn" | "zoomOut" | "panLeft" | "panRight" | "panUp" | "panDown" | "kenBurns";
+  intensity?: number;
+};
+
+export type EditorTextAnim = "none" | "fade" | "slideUp" | "typewriter" | "zoom";
 
 export type EditorClip = {
   id: string;
@@ -35,7 +42,13 @@ export type EditorClip = {
   effect?: "none" | "blur" | "vignette" | "grain" | "shake" | "zoom";
   effectIntensity?: number;
   transitionIn?: "none" | "fade";
+  transition?: "none" | "fade" | "slideleft" | "slideright" | "slideup" | "zoom" | "flash" | "blur" | "wipe";
   transitionDuration?: number;
+  motion?: EditorMotion;
+  scale?: number;
+  textAnim?: EditorTextAnim;
+  font?: string;
+  fontWeight?: number;
   keyframes?: EditorKeyframe[];
 };
 
@@ -116,11 +129,19 @@ export function normalizeTimeline(raw: any): EditorTimeline {
         effect: ["blur","vignette","grain","shake","zoom"].includes(String(c?.effect)) ? String(c.effect) as any : "none",
         effectIntensity: Math.max(0, Math.min(100, Number(c?.effectIntensity || 30))),
         transitionIn: String(c?.transitionIn) === "fade" ? "fade" : "none",
+        transition: ["fade","slideleft","slideright","slideup","zoom","flash","blur","wipe"].includes(String(c?.transition)) ? String(c.transition) as any : "none",
         transitionDuration: Math.max(0, Math.min(5, Number(c?.transitionDuration || 0))),
+        motion: c?.motion && ["zoomIn","zoomOut","panLeft","panRight","panUp","panDown","kenBurns"].includes(String(c.motion.type))
+          ? { type: String(c.motion.type) as any, intensity: Math.max(0, Math.min(100, Number(c.motion.intensity ?? 30))) }
+          : { type: "none", intensity: 0 },
+        scale: Math.max(0.1, Math.min(3, Number(c?.scale ?? 1))),
+        textAnim: ["fade","slideUp","typewriter","zoom"].includes(String(c?.textAnim)) ? String(c.textAnim) as any : "none",
+        font: String(c?.font || "arial"),
+        fontWeight: Math.max(300, Math.min(900, Number(c?.fontWeight || 400))),
         keyframes: Array.isArray(c?.keyframes) ? c.keyframes.map((k: any) => ({
           id: String(k?.id || `k-${Math.random().toString(36).slice(2, 8)}`),
           time: Math.max(0, Number(k?.time || 0)),
-          property: ["volume","opacity"].includes(String(k?.property)) ? String(k.property) as any : "volume",
+          property: ["volume","opacity","scale","x","y"].includes(String(k?.property)) ? String(k.property) as any : "volume",
           value: Number(k?.value || 0),
           interpolation: ["linear","easeIn","easeOut","easeInOut"].includes(String(k?.interpolation)) ? String(k.interpolation) as any : "linear",
         })).sort((a: any, b: any) => a.time - b.time) : [],

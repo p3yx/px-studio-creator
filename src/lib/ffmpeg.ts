@@ -32,10 +32,14 @@ export async function probeVideo(filePath: string) {
   const data = JSON.parse(stdout || "{}");
   const v = (data.streams || []).find((s: any) => s.codec_type === "video") || {};
   const duration = parseFloat(data.format?.duration || v.duration || "0") || 0;
+  const rate = String(v.avg_frame_rate || v.r_frame_rate || "0/0");
+  const [rn, rd] = rate.split("/").map(Number);
+  const fps = rd > 0 && rn > 0 ? Math.round((rn / rd) * 1000) / 1000 : 0;
   return {
     duration,
     width: v.width || null,
     height: v.height || null,
+    fps,
     size: data.format?.size ? parseInt(data.format.size, 10) : null,
     raw: data,
   };
@@ -136,36 +140,40 @@ export async function renderClip(opts: RenderOptions) {
   const argsBase = ["-y", "-ss", String(opts.start), "-t", String(duration), "-i", opts.input];
 
   // Build delogo chain in SOURCE pixel space (must run before aspect crop/scale).
-  // Multiple regions are chained sequentially; each blur region uses unique split labels.
+  // delogo reconstructs from edge pixels; a median pass removes the streak artefacts
+  // that plain delogo leaves behind. Geometry is snapped to even pixels so chroma
+  // planes (yuv420p) stay aligned — odd coordinates produce vertical bar artefacts.
   const regions = (opts.delogos && opts.delogos.length ? opts.delogos : (opts.delogo ? [opts.delogo] : []));
-  let dlPrefix = "";
-  let dlOverlay = "";
+  let preFilter = "";
+  let dlOnly = "";
   if (regions.length) {
     try {
       const info = await probeVideo(opts.input).catch(() => ({ width: null, height: null } as any));
       const iw = Math.max(2, Number(info?.width || 1920));
       const ih = Math.max(2, Number(info?.height || 1080));
-      const even = (n: number) => Math.max(2, n - (n % 2));
-      regions.slice(0, 8).forEach((r, idx) => {
-        const dx0 = Math.max(1, Math.round((iw * clamp(r.x, 0, 99)) / 100));
-        const dy0 = Math.max(1, Math.round((ih * clamp(r.y, 0, 99)) / 100));
-        let dw = Math.max(2, Math.round((iw * clamp(r.w, 1, 100)) / 100));
-        let dh = Math.max(2, Math.round((ih * clamp(r.h, 1, 100)) / 100));
-        if (dx0 + dw > iw - 1) dw = Math.max(2, iw - 1 - dx0);
-        if (dy0 + dh > ih - 1) dh = Math.max(2, ih - 1 - dy0);
-        const dx = Math.min(dx0, iw - 2), dy = Math.min(dy0, ih - 2);
-        dw = Math.min(dw, iw - 1 - dx); dh = Math.min(dh, ih - 1 - dy);
-        if (dw < 2 || dh < 2) return;
-        dlPrefix += `delogo=x=${dx}:y=${dy}:w=${dw}:h=${dh},`;
-        const b = Math.max(2, Math.min(20, Math.round(Number(r.blur) || 0)));
-        if (b >= 2) {
-          const cw = Math.min(even(dw), iw - dx), ch = Math.min(even(dh), ih - dy);
-          dlOverlay += `split[base${idx}][tmp${idx}];[tmp${idx}]crop=${cw}:${ch}:${dx}:${dy},boxblur=${b}:1[b${idx}];[base${idx}][b${idx}]overlay=${dx}:${dy},`;
-        }
-      });
+      const even = (n: number) => { const r = Math.round(n); return Math.max(2, r - (r % 2)); };
+      const boxes = regions.slice(0, 8).map((r) => {
+        const pad = 2;
+        let dx = even(Math.round((iw * clamp(r.x, 0, 99)) / 100) - pad);
+        let dy = even(Math.round((ih * clamp(r.y, 0, 99)) / 100) - pad);
+        let dw = even(Math.round((iw * clamp(r.w, 1, 100)) / 100) + pad * 2);
+        let dh = even(Math.round((ih * clamp(r.h, 1, 100)) / 100) + pad * 2);
+        dx = Math.min(dx, Math.max(2, iw - 8));
+        dy = Math.min(dy, Math.max(2, ih - 8));
+        dw = even(Math.min(dw, iw - 2 - dx));
+        dh = even(Math.min(dh, ih - 2 - dy));
+        return { dx, dy, dw, dh };
+      }).filter(b => b.dw >= 6 && b.dh >= 6);
+      if (boxes.length) {
+        const dl = boxes.map(b => `delogo=x=${b.dx}:y=${b.dy}:w=${b.dw}:h=${b.dh}:show=0`).join(",");
+        dlOnly = dl + ",";
+        preFilter = dl + ",";
+        boxes.forEach((b, idx) => {
+          preFilter += `split[dlb${idx}][dlt${idx}];[dlt${idx}]crop=${b.dw}:${b.dh}:${b.dx}:${b.dy},median=5[dlmed${idx}];[dlb${idx}][dlmed${idx}]overlay=${b.dx}:${b.dy},`;
+        });
+      }
     } catch { /* delogo optional */ }
   }
-  const preFilter = `${dlPrefix}${dlOverlay}`;
 
   const subPart = opts.subtitlePath
     ? `,subtitles='${opts.subtitlePath.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'")}':force_style='${String(subtitleStyle).replace(/'/g, "")}'`
@@ -207,8 +215,8 @@ export async function renderClip(opts: RenderOptions) {
     ];
     const { code, stderr } = await runProcess(FFMPEG, args);
     if (code !== 0) {
-      // fallback: delogo without region blur, then without subtitles if still failing
-      const fc2 = `[0:v]${dlPrefix}${baseVf}[vout]`;
+      // fallback: plain delogo without median, then without subtitles if still failing
+      const fc2 = `[0:v]${dlOnly}${baseVf}[vout]`;
       const args2 = [
         ...argsBase,
         "-filter_complex", fc2,

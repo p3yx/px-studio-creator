@@ -1,10 +1,24 @@
 import path from "path";
 import fs from "fs/promises";
-import { runProcess } from "./ffmpeg";
+import { runProcess, probeVideo } from "./ffmpeg";
 import { EditorTimeline, EditorClip, timelineDuration } from "./editor";
 
 const FF = () => process.env.FFMPEG_PATH || "ffmpeg";
-const FONT = process.platform === "win32" ? "C\\\\\\:/Windows/Fonts/arial.ttf" : "Arial";
+const FONT_FILES: Record<string, string> = process.platform === "win32" ? {
+  arial: "C\\\\\\:/Windows/Fonts/arial.ttf",
+  arialbd: "C\\\\\\:/Windows/Fonts/arialbd.ttf",
+  calibri: "C\\\\\\:/Windows/Fonts/calibri.ttf",
+  verdana: "C\\\\\\:/Windows/Fonts/verdana.ttf",
+  tahoma: "C\\\\\\:/Windows/Fonts/tahoma.ttf",
+  georgia: "C\\\\\\:/Windows/Fonts/georgia.ttf",
+  impact: "C\\\\\\:/Windows/Fonts/impact.ttf",
+  konsolas: "C\\\\\\:/Windows/Fonts/consola.ttf",
+} : {
+  arial: "Arial", arialbd: "Arial Bold", calibri: "Calibri", verdana: "Verdana",
+  tahoma: "Tahoma", georgia: "Georgia", impact: "Impact", konsolas: "Courier",
+};
+const fontFile = (key?: string) => FONT_FILES[String(key || "arial").toLowerCase()] || FONT_FILES.arial;
+const FONT = fontFile();
 
 function aspectOf(t: EditorTimeline): "16:9" | "9:16" | "1:1" {
   if (t.width === t.height) return "1:1";
@@ -13,6 +27,13 @@ function aspectOf(t: EditorTimeline): "16:9" | "9:16" | "1:1" {
 function escapeConcat(p: string) { return p.replace(/\\/g, "/").replace(/'/g, "'\\''"); }
 function esc(s: string) { return String(s || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\r?\n/g, " "); }
 function hexColor(c: string) { return String(c || "#FFFFFF").replace(/^#/, "0x"); }
+const IMAGE_EXT = /\.(png|jpe?g|webp|bmp|gif|avif)$/i;
+function mediaInput(pathLike: string, sourceIn: number, raw: number, fps = 30): string[] {
+  const p = String(pathLike || "").split("?")[0];
+  return IMAGE_EXT.test(p)
+    ? ["-framerate", String(fps), "-loop", "1", "-t", String(raw), "-i", String(pathLike)]
+    : ["-ss", String(sourceIn), "-t", String(raw), "-i", String(pathLike)];
+}
 
 function easeExpr(p: string, mode: string) {
   if (mode === "easeIn") return `(${p})*(${p})`;
@@ -53,11 +74,37 @@ async function makeFiller(out: string, seconds: number, t: EditorTimeline) {
   if (r.code !== 0) throw new Error(`Filler gagal: ${String(r.stderr).slice(-300)}`);
 }
 
+function motionFilter(motion: NonNullable<EditorClip["motion"]>, t: EditorTimeline, dur: number, effectZoom?: number, sourceFps?: number): string {
+  const inten = Math.max(5, Math.min(80, Number(effectZoom ?? motion.intensity ?? 30))) / 100;
+  const frames = Math.max(2, Math.round(dur * t.fps));
+  const prog = `min(on\\,${frames - 1})/${frames - 1}`;
+  const type = motion.type;
+  let z: string;
+  if (type === "zoomOut") z = `1+${inten.toFixed(3)}*(1-${prog})`;
+  else if (type === "zoomIn" || type === "kenBurns") z = `1+${inten.toFixed(3)}*${prog}`;
+  else z = `1+${(inten * 0.35).toFixed(3)}`;
+  let x = `(iw-iw/zoom)/2`;
+  let y = `(ih-ih/zoom)/2`;
+  if (type === "panLeft") x = `(iw-iw/zoom)*(1-${prog})`;
+  else if (type === "panRight" || type === "kenBurns") x = `(iw-iw/zoom)*${prog}`;
+  else if (type === "panUp") y = `(ih-ih/zoom)*(1-${prog})`;
+  else if (type === "panDown") y = `(ih-ih/zoom)*${prog}`;
+  const sw = t.width * 2, sh = t.height * 2;
+  return `scale=${sw}:${sh}:force_original_aspect_ratio=increase,crop=${sw}:${sh},` +
+    `zoompan=z='${z}':x='${x}':y='${y}':d=1:s=${t.width}x${t.height}:fps=${sourceFps || t.fps}`;
+}
+
 async function renderSegment(c: EditorClip, t: EditorTimeline, texts: EditorClip[], out: string) {
   const speed = Math.max(0.25, Math.min(4, Number(c.speed || 1)));
   const raw = Math.max(0.1, c.sourceOut - c.sourceIn);
   const dur = raw / speed;
-  const vf: string[] = [`scale=${t.width}:${t.height}:force_original_aspect_ratio=increase,crop=${t.width}:${t.height}`];
+  const motionOn = !!c.motion && c.motion.type !== "none";
+  const zoomEffect = c.effect === "zoom" ? Math.max(20, Number(c.effectIntensity || 30)) : undefined;
+  const srcMeta = await probeVideo(c.path).catch(() => ({ fps: 0 } as any));
+  const srcFps = Number(srcMeta.fps) || t.fps;
+  const vf: string[] = [motionOn || zoomEffect
+    ? motionFilter(c.motion || { type: "zoomIn", intensity: 30 }, t, dur, zoomEffect, srcFps)
+    : `scale=${t.width}:${t.height}:force_original_aspect_ratio=increase,crop=${t.width}:${t.height}`];
   if (speed !== 1) vf.push(`setpts=(PTS-STARTPTS)/${speed.toFixed(4)}`);
   if (c.brightness || c.contrast !== 1 || c.saturation !== 1) {
     vf.push(`eq=brightness=${(Number(c.brightness || 0) * 0.2).toFixed(3)}:contrast=${Number(c.contrast || 1).toFixed(3)}:saturation=${Number(c.saturation || 1).toFixed(3)}`);
@@ -74,10 +121,12 @@ async function renderSegment(c: EditorClip, t: EditorTimeline, texts: EditorClip
   if (c.effect === "shake") {
     vf.push(`scale=${t.width + 40}:${t.height + 40},crop=${t.width}:${t.height}:x='20+${(inten / 5).toFixed(1)}*sin(T*18)':y='20+${(inten / 5).toFixed(1)}*cos(T*15)'`);
   }
-  const trDur = c.transitionIn === "fade" ? Math.max(0, Number(c.transitionDuration || 0)) : 0;
+  const trType = c.transition && c.transition !== "none" ? c.transition : (c.transitionIn === "fade" ? "fade" : "none");
+  const trDur = trType !== "none" ? Math.max(0, Number(c.transitionDuration || 0)) : 0;
   const fi = Math.max(0, Number(c.fadeIn || 0), trDur);
   const fo = Math.max(0, Number(c.fadeOut || 0));
-  if (fi > 0) vf.push(`fade=t=in:st=0:d=${Math.min(fi, dur).toFixed(3)}`);
+  const inColor = trType === "flash" ? "white" : "black";
+  if (fi > 0) vf.push(`fade=t=in:st=0:d=${Math.min(fi, dur).toFixed(3)}:color=${inColor}`);
   if (fo > 0) vf.push(`fade=t=out:st=${Math.max(0, dur - Math.min(fo, dur)).toFixed(3)}:d=${Math.min(fo, dur).toFixed(3)}`);
 
   // Text overlays that are active during this clip.
@@ -87,8 +136,23 @@ async function renderSegment(c: EditorClip, t: EditorTimeline, texts: EditorClip
     const te = Math.min(dur, tx.start + tx.duration - c.start);
     if (te <= ts) continue;
     const xExpr = `(w-text_w)*${Math.max(0, Math.min(100, Number(tx.x ?? 50)))}/100`;
-    const yExpr = `(h-text_h)*${Math.max(0, Math.min(100, Number(tx.y ?? 50)))}/100`;
-    vf.push(`drawtext=fontfile=${FONT}:text='${esc(tx.text)}':fontcolor=${hexColor(tx.color)}:fontsize=${Math.round(tx.fontSize || 48)}:x='${xExpr}':y='${yExpr}':enable='between(t,${ts.toFixed(3)},${te.toFixed(3)})'`);
+    let yExpr = `(h-text_h)*${Math.max(0, Math.min(100, Number(tx.y ?? 50)))}/100`;
+    const fs = Math.round(tx.fontSize || 48);
+    let fsExpr = String(fs);
+    let alphaExpr = "1";
+    const anim = tx.textAnim || "none";
+    if (anim === "slideUp") {
+      yExpr = `${yExpr}+80*(1-min(max((t-${ts.toFixed(3)})/0.5,0),1))`;
+      alphaExpr = `min(max((t-${ts.toFixed(3)})/0.4,0),1)`;
+    } else if (anim === "zoom") {
+      fsExpr = `${fs}*(0.6+0.4*min(max((t-${ts.toFixed(3)})/0.5,0),1))`;
+      alphaExpr = `min(max((t-${ts.toFixed(3)})/0.3,0),1)`;
+    } else if (anim === "typewriter") {
+      alphaExpr = `min(max((t-${ts.toFixed(3)})*5,0),1)`;
+    } else if (anim === "fade") {
+      alphaExpr = `min(max((t-${ts.toFixed(3)})/0.4,0),1)`;
+    }
+    vf.push(`drawtext=fontfile=${fontFile(tx.font)}:text='${esc(tx.text)}':fontcolor=${hexColor(tx.color)}:fontsize='${fsExpr}':x='${xExpr}':y='${yExpr}':alpha='${alphaExpr}':enable='between(t,${ts.toFixed(3)},${te.toFixed(3)})'`);
   }
 
   const af: string[] = [];
@@ -102,7 +166,7 @@ async function renderSegment(c: EditorClip, t: EditorTimeline, texts: EditorClip
   if (fo > 0) af.push(`afade=t=out:st=${Math.max(0, dur - Math.min(fo, dur)).toFixed(3)}:d=${Math.min(fo, dur).toFixed(3)}`);
 
   const args = [
-    "-y", "-ss", String(c.sourceIn), "-t", String(raw), "-i", c.path,
+    "-y", ...mediaInput(c.path, c.sourceIn, raw, srcFps),
     "-vf", vf.join(","), "-map", "0:v:0", "-map", "0:a?",
     ...(af.length ? ["-af", af.join(",")] : []),
     "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
@@ -170,9 +234,10 @@ export async function renderEditorTimeline(opts: {
       const mov = path.join(segDir, `overlay-${i}.mov`);
       const raw = Math.max(0.1, c.sourceOut - c.sourceIn);
       const op = Number(c.opacity ?? 1);
-      const vf = `scale=iw*0.45:-2,format=rgba,colorchannelmixer=aa=${op.toFixed(3)},format=argb`;
+      const sc = Math.max(0.1, Math.min(3, Number(c.scale ?? 0.45)));
+      const vf = `scale=iw*${sc.toFixed(3)}:-2,format=rgba,colorchannelmixer=aa=${op.toFixed(3)},format=argb`;
       const mr = await runProcess(FF(), [
-        "-y", "-ss", String(c.sourceIn), "-t", String(raw), "-i", c.path,
+        "-y", ...mediaInput(c.path, c.sourceIn, raw, t.fps),
         "-vf", vf, "-an", "-c:v", "qtrle", mov,
       ]);
       if (mr.code === 0) movs.push({ file: mov, start: c.start, duration: c.duration });

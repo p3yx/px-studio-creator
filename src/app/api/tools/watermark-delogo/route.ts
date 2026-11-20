@@ -10,7 +10,6 @@ import { editGeminiImage, saveImageResult } from "@/lib/gemini-interactions";
 export const runtime = "nodejs";
 
 function clamp(v: number, min: number, max: number) { return Math.max(min, Math.min(max, Number.isFinite(v) ? v : min)); }
-function even(n: number) { return Math.max(2, n - (n % 2)); }
 
 export async function POST(req: NextRequest) {
   try {
@@ -30,7 +29,6 @@ export async function POST(req: NextRequest) {
     if (xP + wP > 100) wP = Math.max(1, 100 - xP);
     if (yP + hP > 100) hP = Math.max(1, 100 - yP);
 
-    const blur = clamp(Number(form.get("blur") || 8), 2, 20);
 
     const dir = path.join(STORAGE_ROOT, "tools", "watermark-delogo", user.id);
     await fs.mkdir(dir, { recursive: true });
@@ -78,17 +76,58 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // delogo requires the region strictly inside the frame with >=1px margin from borders
-    let dx = Math.max(1, Math.round((iw * xP) / 100));
-    let dy = Math.max(1, Math.round((ih * yP) / 100));
-    let dw = Math.max(2, Math.round((iw * wP) / 100));
-    let dh = Math.max(2, Math.round((ih * hP) / 100));
-    if (dx + dw > iw - 1) dw = Math.max(2, iw - 1 - dx);
-    if (dy + dh > ih - 1) dh = Math.max(2, ih - 1 - dy);
-    if (dx > iw - 2) { dx = 1; dw = Math.max(2, Math.min(dw, iw - 2)); }
-    if (dy > ih - 2) { dy = 1; dh = Math.max(2, Math.min(dh, ih - 2)); }
-    dw = Math.min(dw, iw - 1 - dx); dh = Math.min(dh, ih - 1 - dy);
-    if (dw < 2 || dh < 2) {
+    // AI LaMa: real CPU inpainting via ONNX. Preview = one frame (image), Apply = full video.
+    if (method === "ai_lama") {
+      const py = process.env.PYTHON_PATH || (process.platform === "win32" ? "py" : "python3");
+      const pyArgs = process.platform === "win32" && py === "py" ? ["-3"] : [];
+      const script = path.join(process.cwd(), "scripts", "wm_inpaint.py");
+      const ffmpegBin = process.env.FFMPEG_PATH || "ffmpeg";
+      const regions = JSON.stringify([[xP, yP, wP, hP]]);
+      const isPreview = mode === "preview";
+      const outFile = isPreview
+        ? path.join(dir, `lama-${id}.png`)
+        : path.join(dir, `lama-${id}.mp4`);
+      const ts = clamp(Number(form.get("time") || 1.5), 0, Math.max(0, Number(meta?.duration || 30) - 0.1));
+      const stride = Math.max(1, Math.min(10, Math.round(Number(form.get("stride") || 1))));
+      const args = [...pyArgs, script,
+        "--input", inPath, "--output", outFile,
+        "--regions", regions,
+        "--mode", isPreview ? "image" : "video",
+        "--time", String(ts),
+        "--stride", String(stride),
+        "--ffmpeg", ffmpegBin,
+      ];
+      const r = await runProcess(py, args, { maxLog: 4000 });
+      const okRun = r.code === 0 && /OK (image|video)/.test(r.stdout) && await fs.stat(outFile).then(s => s.size > 1000).catch(() => false);
+      await fs.unlink(inPath).catch(() => {});
+      if (!okRun) {
+        await fs.unlink(outFile).catch(() => {});
+        return NextResponse.json({ error: `AI LaMa gagal: ${String(r.stdout + r.stderr).slice(-400)}` }, { status: 500 });
+      }
+      const st = await fs.stat(outFile);
+      return NextResponse.json({
+        ok: true, mode, method: "ai_lama", kind: isPreview ? "image" : "video",
+        fileUrl: publicFileUrl(outFile), fileSize: st.size,
+        note: isPreview
+          ? `AI LaMa (inpainting CPU) — preview 1 frame pada ${ts.toFixed(1)} detik. Area diisi dari konteks sekeliling, tanpa blur.`
+          : `AI LaMa (inpainting CPU) — seluruh video diproses (stride ${stride}). Audio & durasi dipertahankan. Model: LaMa ONNX int8.`,
+        config: { rect: { x: xP, y: yP, w: wP, h: hP }, stride, time: ts, source: { width: iw, height: ih } },
+      });
+    }
+
+    // Delogo geometry snapped to even pixels (yuv420p chroma alignment) with a small pad.
+    // Odd coordinates produce vertical-bar artefacts after the median pass.
+    const even = (n: number) => { const r = Math.round(n); return Math.max(2, r - (r % 2)); };
+    const pad = 2;
+    let dx = even(Math.round((iw * xP) / 100) - pad);
+    let dy = even(Math.round((ih * yP) / 100) - pad);
+    let dw = even(Math.round((iw * wP) / 100) + pad * 2);
+    let dh = even(Math.round((ih * hP) / 100) + pad * 2);
+    dx = Math.min(dx, Math.max(2, iw - 8));
+    dy = Math.min(dy, Math.max(2, ih - 8));
+    dw = even(Math.min(dw, iw - 2 - dx));
+    dh = even(Math.min(dh, ih - 2 - dy));
+    if (dw < 6 || dh < 6) {
       await fs.unlink(inPath).catch(() => {});
       return NextResponse.json({ error: "Area terlalu kecil/di tepi frame. Pilih area yang berada di dalam frame." }, { status: 400 });
     }
@@ -98,30 +137,18 @@ export async function POST(req: NextRequest) {
     const enc = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart"];
 
     if (method === "delogo") {
-      // bind first video stream explicitly (extra Data/Subtitle streams in source files can break unlabeled pads)
-      const vf = `[0:v:0]delogo=x=${dx}:y=${dy}:w=${dw}:h=${dh}:show=0[vout]`;
+      // delogo rebuilds from surrounding pixels; median removes the streak artefacts.
+      // Bind first video stream explicitly (extra Data/Subtitle streams can break unlabeled pads).
+      const vf = `[0:v:0]delogo=x=${dx}:y=${dy}:w=${dw}:h=${dh}:show=0,split[base][tmp];[tmp]crop=${dw}:${dh}:${dx}:${dy},median=5[m];[base][m]overlay=${dx}:${dy}[vout]`;
       const args = ["-y", "-i", inPath, "-filter_complex", vf, "-map", "[vout]", "-map", "0:a?", ...enc, outPath];
       r = await runProcess(ff, args);
       if (r.code !== 0) {
-        // fallback: band interpolation tuning
-        const vf2 = `[0:v:0]delogo=x=${dx}:y=${dy}:w=${dw}:h=${dh}[vout]`;
+        // fallback: plain delogo without median
+        const vf2 = `[0:v:0]delogo=x=${dx}:y=${dy}:w=${dw}:h=${dh}:show=0[vout]`;
         const args2 = ["-y", "-i", inPath, "-filter_complex", vf2, "-map", "[vout]", "-map", "0:a?", ...enc, outPath];
         r = await runProcess(ff, args2);
       }
-      note = "Delogo (FFmpeg): area diisi dengan interpolasi piksel dari tepi sekelilingnya — bukan blur, sehingga watermark tidak menyisakan bayangan. Audio, durasi, resolusi & frame rate dipertahankan. Sumber tidak diubah.";
-    } else if (method === "delogo_blur") {
-      const cx = dx, cy = dy;
-      let cw = even(dw), ch = even(dh);
-      cw = Math.min(cw, iw - cx); ch = Math.min(ch, ih - cy);
-      const vf = `[0:v:0]delogo=x=${dx}:y=${dy}:w=${dw}:h=${dh},split[base][tmp];[tmp]crop=${cw}:${ch}:${cx}:${cy},boxblur=${blur}:1[b];[base][b]overlay=${cx}:${cy}[vout]`;
-      const args = ["-y", "-i", inPath, "-filter_complex", vf, "-map", "[vout]", "-map", "0:a?", ...enc, outPath];
-      r = await runProcess(ff, args);
-      if (r.code !== 0) {
-        const vf2 = `[0:v:0]delogo=x=${dx}:y=${dy}:w=${dw}:h=${dh},split[base][tmp];[tmp]crop=${cw}:${ch}:${cx}:${cy},boxblur=${Math.min(blur, 10)}:1[b];[base][b]overlay=${cx}:${cy}[vout]`;
-        const args2 = ["-y", "-i", inPath, "-filter_complex", vf2, "-map", "[vout]", "-map", "0:a?", ...enc, outPath];
-        r = await runProcess(ff, args2);
-      }
-      note = "Delogo + Blur Tipis (FFmpeg): area direkonstruksi dari tepi (delogo) lalu diberi blur sangat tipis agar tekstur lebih halus — cocok untuk logo besar/tebal. Audio, durasi, resolusi & frame rate dipertahankan. Sumber tidak diubah.";
+      note = "Delogo + Median (FFmpeg): area direkonstruksi dari piksel tepi, lalu dihaluskan dengan median untuk menghilangkan garis/sisa teks. Tanpa blur. Audio, durasi, resolusi & frame rate dipertahankan. CATATAN: pada background sangat kompleks/berganti cepat, sisa bayangan tipis masih mungkin terlihat — ini batasan interpolasi delogo.";
     } else {
       await fs.unlink(inPath).catch(() => {});
       return NextResponse.json({ error: "Metode tidak didukung." }, { status: 400 });

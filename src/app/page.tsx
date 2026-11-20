@@ -2,6 +2,8 @@ import Link from "next/link";
 import { Sparkles, Wand2, Film, Subtitles, Scissors, Cpu } from "lucide-react";
 
 import { BrandLockup, PxLogoMark } from "@/components/brand";
+import { HomeBannerCarousel } from "@/components/home-banner-carousel";
+import { HOME_BANNER_SLIDES } from "@/lib/home-banner-slides";
 
 export default function Home() {
   return (
@@ -13,6 +15,7 @@ export default function Home() {
         </nav>
       </header>
       <main className="relative z-10 px-6 lg:px-12 py-16 sm:py-20 lg:py-24 max-w-7xl mx-auto page-enter">
+        <HomeBannerCarousel slides={HOME_BANNER_SLIDES} />
         <div className="grid lg:grid-cols-[1.1fr_.9fr] gap-12 lg:gap-16 items-center">
           <div className="space-y-6">
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-violet-400/20 bg-violet-500/10 text-violet-200 text-xs sm:text-sm">

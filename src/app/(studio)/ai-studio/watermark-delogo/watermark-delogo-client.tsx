@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Card, Button, Input, Select } from "@/components/ui";
 import { Film, Loader2, Eraser, Eye, Download, Info, Play, ShieldAlert, Wand2 } from "lucide-react";
 
-type Method = "delogo" | "ai";
+type Method = "delogo" | "ai" | "ai_lama";
 type Rect = { x: number; y: number; w: number; h: number };
 
 export default function WatermarkDelogoClient() {
@@ -11,7 +11,6 @@ export default function WatermarkDelogoClient() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [method, setMethod] = useState<Method>("delogo");
   const [rect, setRect] = useState<Rect>({ x: 70, y: 80, w: 20, h: 12 });
-  const [blur, setBlur] = useState(8);
   const [aiTime, setAiTime] = useState("1.5");
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
@@ -78,17 +77,19 @@ export default function WatermarkDelogoClient() {
     if (!video) { setError("Pilih video terlebih dahulu."); return; }
     setBusy(true); setError(null); setNotice(null); setProgress("Preparing video...");
     try {
-      setProgress(method === "delogo" ? "Processing (Delogo tanpa blur, FFmpeg)..." : "Processing (AI Gemini, satu frame)...");
+      setProgress(method === "delogo" ? "Processing (Delogo + Median, FFmpeg)..."
+        : method === "ai_lama" ? "Processing (AI LaMa inpainting CPU - bisa beberapa menit)..."
+        : "Processing (AI Gemini, satu frame)...");
       const fd = new FormData();
       fd.append("video", video);
       fd.append("method", method);
       fd.append("mode", mode);
-      if (method === "ai") fd.append("time", aiTime);
+      if (method === "ai" || method === "ai_lama") fd.append("time", aiTime);
+      if (method === "ai_lama" && mode === "apply") fd.append("stride", "1");
       fd.append("x", String(Math.round(rect.x * 100) / 100));
       fd.append("y", String(Math.round(rect.y * 100) / 100));
       fd.append("w", String(Math.round(rect.w * 100) / 100));
       fd.append("h", String(Math.round(rect.h * 100) / 100));
-      fd.append("blur", String(blur));
       const res = await fetch("/api/tools/watermark-delogo", { method: "POST", body: fd });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || "Gagal memproses");
@@ -129,24 +130,28 @@ export default function WatermarkDelogoClient() {
           <div className="grid sm:grid-cols-2 gap-4">
             <div className="space-y-1"><label className="text-sm text-zinc-300">Metode</label>
               <Select value={method} onChange={e => setMethod(e.target.value as Method)}>
-                <option value="delogo">Delogo — rekonstruksi tepi, TANPA blur</option>
+                <option value="delogo">Delogo + Median — rekonstruksi tepi, tanpa blur</option>
+                <option value="ai_lama">AI LaMa — inpainting CPU, hasil bersih (lambat)</option>
                 <option value="ai">AI (Gemini) — hapus watermark pada 1 frame</option>
               </Select>
             </div>
-            {method === "ai" && (
-              <div className="space-y-1"><label className="text-sm text-zinc-300">Detik frame yang dihapus (AI)</label>
+            {(method === "ai" || method === "ai_lama") && (
+              <div className="space-y-1"><label className="text-sm text-zinc-300">Detik frame (Preview AI)</label>
                 <Input type="number" min={0} step={0.5} value={aiTime} onChange={e => setAiTime(e.target.value)} />
               </div>
             )}
             {method === "delogo" && (
-              <div className="text-xs text-zinc-500 self-end pb-2">Area delogo diisi dari piksel tepi — tidak ada blur, tidak ada bayangan.</div>
+              <div className="text-xs text-zinc-500 self-end pb-2">Area diisi dari piksel tepi (delogo) lalu dirapikan dengan median — tanpa blur.</div>
+            )}
+            {method === "ai_lama" && (
+              <div className="text-xs text-cyan-300 self-end pb-2">Preview = 1 frame (~7 detik). Apply = seluruh video (~6 detik/frame, bisa lama).</div>
             )}
           </div>
 
           <div className="rounded-xl border border-white/10 bg-white/[0.03] text-sm px-4 py-3 flex gap-2">
             <Info size={16} className="shrink-0 mt-0.5" />
             <div>
-              <b>Delogo</b> mengisi area yang dipilih dengan interpolasi piksel dari tepi sekelilingnya — <b>totally tanpa blur</b>, jadi tidak ada siluet/bayangan. <b>AI (Gemini)</b> mengedit satu frame agar watermark hilang dengan inpainting (hasil gambar, bukan video penuh). Pilih area tepat di atas watermark untuk delogo.
+              <b>Delogo + Median</b> mengisi area dari piksel tepi lalu merapikannya dengan median — cepat, tapi pada background kompleks masih menyisakan blur. <b>AI LaMa</b> adalah inpainting CPU yang merekonstruksi area dari konteks sekeliling — <b>benar-benar bersih, tanpa blur</b>, tapi jauh lebih lama (~6 detik/frame). <b>AI (Gemini)</b> mengedit satu frame. Pilih area tepat di atas watermark.
             </div>
           </div>
 

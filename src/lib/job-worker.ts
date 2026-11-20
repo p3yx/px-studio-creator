@@ -2,7 +2,7 @@ import path from "path";
 import fs from "fs/promises";
 import { prisma } from "./db";
 import { analyzeVideoForHighlights } from "./analysis";
-import { renderClip, probeVideo, generateThumbnail, convertResizeVideo, createImageSlideshow, createPromptVideo, ensureAutoMusicTrack } from "./ffmpeg";
+import { renderClip, probeVideo, generateThumbnail, convertResizeVideo, createImageSlideshow, createPromptVideo, ensureAutoMusicTrack, runProcess } from "./ffmpeg";
 import { runTaskChat } from "./ai-providers";
 import { geminiVideoAvailable, startGeminiVideo, pollGeminiVideo, saveGeminiVideo } from "./gemini-video";
 import { renderEditorTimeline } from "./editor-render";
@@ -527,23 +527,48 @@ async function processJob(job: any) {
   await updateProject(project.id, { status: "RENDERING" });
   const outDir = clipsDir(project.id);
   const clips = await prisma.clip.findMany({ where: { projectId: project.id }, orderBy: { startTime: "asc" } });
+  const rawWm = Array.isArray(config?.removeWatermarks) && config.removeWatermarks.length
+    ? config.removeWatermarks
+    : (config?.removeWatermark ? [config.removeWatermark] : []);
+  const wmRegions = rawWm
+    .filter((r: any) => r && Number.isFinite(Number(r.x)))
+    .map((r: any) => ({ x: Number(r.x), y: Number(r.y), w: Number(r.w), h: Number(r.h), blur: Number(r.blur) || 0 }));
+  const useLama = config?.watermarkMethod === "lama" && wmRegions.length > 0;
   let done = 0;
   for (const c of clips) {
     const safe = c.title.replace(/[^a-z0-9-_ ]+/gi, "").trim().replace(/\s+/g, "-").slice(0, 40) || "clip";
     const outPath = path.join(outDir, `${String(done + 1).padStart(2, '0')}-${safe}.mp4`);
     try {
+      let renderInput = project.sourcePath;
+      let renderStart = c.startTime;
+      let renderEnd = c.endTime;
+      if (useLama) {
+        try {
+          const py = process.env.PYTHON_PATH || (process.platform === "win32" ? "py" : "python3");
+          const pyArgs = process.platform === "win32" && py === "py" ? ["-3"] : [];
+          const script = path.join(process.cwd(), "scripts", "wm_inpaint.py");
+          const cleaned = path.join(tempDir(project.id), `wm-clean-${c.id}.mp4`);
+          const regionsJson = JSON.stringify(wmRegions.map((r: any) => [r.x, r.y, r.w, r.h]));
+          const dur = Math.max(0.1, c.endTime - c.startTime);
+          const rr = await runProcess(py, [...pyArgs, script,
+            "--input", project.sourcePath, "--output", cleaned,
+            "--regions", regionsJson, "--mode", "video",
+            "--start", String(c.startTime), "--duration", String(dur),
+            "--stride", "1", "--ffmpeg", process.env.FFMPEG_PATH || "ffmpeg",
+          ], { maxLog: 4000 });
+          if (rr.code === 0 && /OK video/.test(rr.stdout)) {
+            renderInput = cleaned; renderStart = 0; renderEnd = dur;
+          } else {
+            console.warn("[LaMa] gagal, fallback delogo:", String(rr.stdout + rr.stderr).slice(-300));
+          }
+        } catch (e: any) {
+          console.warn("[LaMa] error, fallback delogo:", e?.message);
+        }
+      }
       await renderClip({
-        input: project.sourcePath, output: outPath, start: c.startTime, end: c.endTime,
+        input: renderInput, output: outPath, start: renderStart, end: renderEnd,
         aspect: (config.aspect as any) || "9:16",
-        ...(() => {
-          const raw = Array.isArray(config?.removeWatermarks) && config.removeWatermarks.length
-            ? config.removeWatermarks
-            : (config?.removeWatermark ? [config.removeWatermark] : []);
-          const regions = raw
-            .filter((r: any) => r && Number.isFinite(Number(r.x)))
-            .map((r: any) => ({ x: Number(r.x), y: Number(r.y), w: Number(r.w), h: Number(r.h), blur: Number(r.blur) || 0 }));
-          return regions.length ? { delogos: regions } : {};
-        })(),
+        ...(!useLama && wmRegions.length ? { delogos: wmRegions } : {}),
       });
       // Optional: keep but clean the source audio, or swap/duck it with a licensed music track.
       if (config?.audioTrack?.mode === "reprocess") {

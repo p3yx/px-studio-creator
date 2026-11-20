@@ -17,7 +17,7 @@ export default function CreateClient() {
   const [quantity, setQuantity] = useState("3");
   const [style, setStyle] = useState("Cinematic Anime");
   const [removeWm, setRemoveWm] = useState(false);
-  const [wmMethod, setWmMethod] = useState("delogo");
+  const [wmMethod, setWmMethod] = useState<"delogo" | "lama">("lama");
   const [wmRects, setWmRects] = useState([{ x: 70, y: 5, w: 25, h: 12 }]);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
@@ -93,10 +93,10 @@ export default function CreateClient() {
     setError(null); setInfo(null);
     const config: any = { duration: Number(duration), aspect, quantity: Number(quantity), mode, prompt, style, subtitle: true };
     if (removeWm) {
-      const blur = wmMethod === "delogo_blur" ? 8 : 0;
-      const regions = wmRects.map(r => ({ x: Number(r.x), y: Number(r.y), w: Number(r.w), h: Number(r.h), blur }));
+      const regions = wmRects.map(r => ({ x: Number(r.x), y: Number(r.y), w: Number(r.w), h: Number(r.h), blur: 0 }));
       config.removeWatermarks = regions;
       config.removeWatermark = regions[0];
+      config.watermarkMethod = wmMethod;
     }
     if (audioMode !== "original") config.audioTrack = { mode: audioMode, audioAssetId, musicVolume: Number(musicVolume), originalVolume: Number(originalVolume) };
 
@@ -187,13 +187,13 @@ export default function CreateClient() {
           </div>
           {removeWm && (
             <>
-              <div className="grid sm:grid-cols-2 gap-3">
-                <div className="space-y-1"><label className="text-xs text-zinc-400">Metode</label>
-                  <Select value={wmMethod} onChange={e=>setWmMethod(e.target.value)}>
-                    <option value="delogo">Delogo (rekonstruksi tepi, tanpa bayangan)</option>
-                    <option value="delogo_blur">Delogo + Blur Tipis (logo besar/tebal)</option>
-                  </Select>
-                </div>
+              <div className="space-y-1">
+                <label className="text-xs text-zinc-400">Metode hapus watermark</label>
+                <Select value={wmMethod} onChange={e => setWmMethod(e.target.value as "delogo" | "lama")}>
+                  <option value="lama">AI LaMa — bersih tanpa blur (render jauh lebih lama)</option>
+                  <option value="delogo">Delogo + Median — cepat, blur tipis masih mungkin</option>
+                </Select>
+                <div className="text-xs text-zinc-500">Geser kotak seleksi agar pas di atas watermark.</div>
               </div>
               {sourceMode === "upload" && videoUrl ? (
                 <div className="space-y-2">

@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480" fill="none">
+  <defs>
+    <linearGradient id="mbg" x1="30" y1="20" x2="610" y2="460" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#24103B"/><stop offset="0.58" stop-color="#121426"/><stop offset="1" stop-color="#0B2B31"/>
+    </linearGradient>
+    <linearGradient id="mcard" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#A78BFA"/><stop offset="1" stop-color="#22D3EE"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="480" fill="url(#mbg)"/>
+  <g opacity="0.9">
+    <rect x="92" y="118" width="240" height="152" rx="18" transform="rotate(-10 92 118)" fill="#C4B5FD" fill-opacity="0.10" stroke="#C4B5FD" stroke-opacity="0.32" stroke-width="1.5"/>
+    <rect x="176" y="126" width="248" height="158" rx="18" transform="rotate(-3 176 126)" fill="#67E8F9" fill-opacity="0.08" stroke="#67E8F9" stroke-opacity="0.28" stroke-width="1.5"/>
+    <rect x="260" y="140" width="256" height="164" rx="18" transform="rotate(5 260 140)" fill="#0B0E18" fill-opacity="0.85" stroke="url(#mcard)" stroke-opacity="0.6" stroke-width="1.5"/>
+  </g>
+  <g stroke="#FFFFFF" stroke-opacity="0.14" stroke-width="1.5">
+    <path d="M392 190l52 32M444 222l-18 26M444 222l26 18"/>
+  </g>
+  <g fill="#A78BFA" fill-opacity="0.6"><path d="M292 176h118v8H292zM292 194h84v6h-84z"/></g>
+  <g fill="#67E8F9" fill-opacity="0.5"><path d="M292 260h150v6H292zM292 278h96v6h-96z"/></g>
+  <rect x="92" y="340" width="456" height="84" rx="16" fill="#0B0E18" fill-opacity="0.8" stroke="#FFFFFF" stroke-opacity="0.08"/>
+  <g>
+    <rect x="110" y="356" width="96" height="52" rx="8" fill="#8B5CF6" fill-opacity="0.35"/>
+    <rect x="214" y="356" width="120" height="52" rx="8" fill="#22D3EE" fill-opacity="0.28"/>
+    <rect x="342" y="356" width="84" height="52" rx="8" fill="#A78BFA" fill-opacity="0.3"/>
+    <rect x="434" y="356" width="96" height="52" rx="8" fill="#67E8F9" fill-opacity="0.22"/>
+  </g>
+  <path d="M110 350v64" stroke="#F4F7FF" stroke-width="2" stroke-opacity="0.75"/>
+  <rect x="0.75" y="0.75" width="638.5" height="478.5" rx="22" stroke="#FFFFFF" stroke-opacity="0.08"/>
+</svg>
