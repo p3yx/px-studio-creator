@@ -28,6 +28,7 @@ export default function VideoEditorClient() {
   const [libTab, setLibTab] = useState<"media" | "audio">("media");
   const [sourceProject, setSourceProject] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [concatProject, setConcatProject] = useState<string | null>(null);
   const [past, setPast] = useState<EditorTimeline[]>([]);
   const [future, setFuture] = useState<EditorTimeline[]>([]);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -255,6 +256,22 @@ export default function VideoEditorClient() {
     finally { setAgentBusy(false); }
   }
 
+  async function sendToConcat() {
+    if (!projectId) return;
+    setBusy(true); setMsg(null);
+    try {
+      const r = await fetch("/api/concat/import-project", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId }) });
+      const j = await r.json();
+      if (!r.ok || !j.ok) throw new Error(j.error || "Gagal kirim ke Concat");
+      setConcatProject(j.concatProject);
+      setMsg(`Project dikirim ke Concat: ${j.concatProject} (${j.media} media).`);
+    } catch (e: any) { setMsg(e.message || "Gagal kirim ke Concat"); } finally { setBusy(false); }
+  }
+  async function openConcat() {
+    if (!concatProject) return;
+    await fetch("/api/concat/open", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: concatProject }) });
+  }
+
   async function renderVideo() {
     if (!projectId) return;
     await save();
@@ -380,7 +397,10 @@ export default function VideoEditorClient() {
           </Select>
           <Button variant="secondary" onClick={openFromProject} disabled={busy || !sourceProject.trim()}>Buka Project di Editor</Button>
           {projectId && <Button variant="ghost" onClick={()=>{ router.replace(`/ai-studio/video-editor?project=${projectId}`); load(projectId).catch(()=>{}); }}>Reload Preview</Button>}
+          {projectId && <Button variant="secondary" onClick={sendToConcat} disabled={busy}>Kirim ke Concat</Button>}
+          {concatProject && <Button variant="secondary" onClick={openConcat}>Buka Concat</Button>}
         </div>
+        {concatProject && <div className="text-[11px] text-cyan-300 break-all">Project Concat: {concatProject}</div>}
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-52 overflow-y-auto">
           {(libTab === "media" ? library.videos : library.audios).map((it: any) => (
             <div key={it.id} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] p-2">
