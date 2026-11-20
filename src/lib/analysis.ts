@@ -151,9 +151,23 @@ export async function analyzeVideoForHighlights(params: {
           } catch { /* try next ranked model */ }
         }
       }
+      // Quantity is a hard target: if the model returns fewer highlights, fill the gaps
+      // with deterministic windows so the job produces exactly `desired` clips.
+      if (cleaned.length && cleaned.length < desired) {
+        const extraPool = heuristicHighlights(total, desired * 4, clipDur, config.mode, false, config.prompt);
+        for (const c0 of extraPool) {
+          if (cleaned.length >= desired) break;
+          if (c0.start >= total) continue;
+          const c = { ...c0, end: Math.min(c0.end, total) };
+          if (c.end - c.start < 0.2) continue;
+          if (cleaned.some(p => c.start < p.end && p.start < c.end)) continue;
+          cleaned.push(c);
+        }
+        cleaned.sort((a, b) => a.start - b.start);
+      }
       if (cleaned.length) {
         await params.onProgress?.("Finding Highlights", 70);
-        return cleaned;
+        return cleaned.slice(0, desired);
       }
     } catch (e: any) {
       aiFailure = String(e?.message || e || "AI error").slice(0, 180);
