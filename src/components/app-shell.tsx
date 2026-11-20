@@ -2,14 +2,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, Sparkles, FolderKanban, Settings, Menu, X, Clapperboard, Wand2, AudioLines, Library, Volume2, Music, Captions, Scaling, Coffee, Eraser, Film } from "lucide-react";
+import { LayoutDashboard, Sparkles, FolderKanban, Settings, Menu, X, Clapperboard, Wand2, AudioLines, Library, Volume2, Music, Captions, Scaling, Coffee, Eraser } from "lucide-react";
 import { BrandLockup, PxLogoMark } from "@/components/brand";
 import { useState } from "react";
 
 const nav = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/projects", label: "Projects", icon: FolderKanban },
-  { href: "/ai-studio/video-editor", label: "Video Editor", icon: Film },
   { href: "/create", label: "AI Clip Studio", icon: Sparkles },
   { href: "/ai-studio/montage", label: "AI Montage", icon: Clapperboard },
   { href: "/ai-studio/prompt-editor", label: "Prompt AI", icon: Wand2 },
