@@ -18,6 +18,7 @@ export default function VideoEditorClient() {
   const [px, setPx] = useState(80);
   const [snap, setSnap] = useState(true);
   const [playing, setPlaying] = useState(false);
+  const [volume, setVolume] = useState(1);
   const [job, setJob] = useState<any>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -310,9 +311,11 @@ export default function VideoEditorClient() {
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
+    v.volume = clamp(volume, 0, 1);
+    v.muted = volume <= 0;
     if (playing) v.play().catch(() => setPlaying(false));
     else v.pause();
-  }, [playing, selectedClip]);
+  }, [playing, selectedClip, volume]);
 
   useEffect(() => {
     if (!videoRef.current || !selectedClip) return;
@@ -404,12 +407,13 @@ export default function VideoEditorClient() {
                 <div className="text-sm font-medium">Preview</div>
                 <div className="flex items-center gap-2">
                   <Button variant="secondary" onClick={() => setPlaying(p => !p)}>{playing ? <Pause size={15}/> : <Play size={15}/>} {playing ? "Pause" : "Play"}</Button>
+                  <div className="flex items-center gap-2 text-xs text-zinc-400"><span>Volume</span><input type="range" min={0} max={1} step={0.05} value={volume} onChange={e=>setVolume(Number(e.target.value))} className="w-24" /><span>{Math.round(volume*100)}%</span></div>
                   <Badge>{timeline.width}x{timeline.height} · {timeline.fps}fps</Badge>
                 </div>
               </div>
               <div className="aspect-video bg-black rounded-xl overflow-hidden flex items-center justify-center">
                 {selectedClip?.url ? (
-                  <video ref={videoRef} src={selectedClip.url} className="w-full h-full object-contain" muted
+                  <video ref={videoRef} src={selectedClip.url} className="w-full h-full object-contain"
                     onTimeUpdate={e => {
                       if (!playing || !selectedClip) return;
                       const v = e.currentTarget;
