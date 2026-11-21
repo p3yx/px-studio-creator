@@ -17,8 +17,8 @@ export default function CreateClient() {
   const [quantity, setQuantity] = useState("3");
   const [style, setStyle] = useState("Cinematic Anime");
   const [removeWm, setRemoveWm] = useState(false);
-  const [wmMethod, setWmMethod] = useState<"delogo" | "lama">("lama");
-  const [wmRects, setWmRects] = useState([{ x: 70, y: 5, w: 25, h: 12 }]);
+  const [wmMethod, setWmMethod] = useState<"delogo" | "lama" | "auto" | "clean" | "autodelogo">("auto");
+  const [wmRects, setWmRects] = useState<{ x: number; y: number; w: number; h: number; start?: number; end?: number }[]>([{ x: 70, y: 5, w: 25, h: 12 }]);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -43,14 +43,20 @@ export default function CreateClient() {
     setFile(f);
     setVideoUrl(f ? URL.createObjectURL(f) : null);
   }
-  function clampRect(r: { x: number; y: number; w: number; h: number }) {
+  function clampRect<T extends { x: number; y: number; w: number; h: number }>(r: T): T {
     const w = Math.max(1, Math.min(99, r.w));
     const h = Math.max(1, Math.min(99, r.h));
-    return { x: Math.max(0, Math.min(100 - w, r.x)), y: Math.max(0, Math.min(100 - h, r.y)), w, h };
+    return { ...r, x: Math.max(0, Math.min(100 - w, r.x)), y: Math.max(0, Math.min(100 - h, r.y)), w, h };
   }
-  function updateField(idx: number, key: "x" | "y" | "w" | "h", val: string) {
+  function updateField(idx: number, key: "x" | "y" | "w" | "h" | "start" | "end", val: string) {
     const n = Number(val);
-    setWmRects(rs => rs.map((r, i) => i === idx ? clampRect({ ...r, [key]: Number.isFinite(n) ? n : r[key] }) : r));
+    setWmRects(rs => rs.map((r, i) => {
+      if (i !== idx) return r;
+      if (key === "start" || key === "end") {
+        return { ...r, [key]: val.trim() === "" || !Number.isFinite(n) ? undefined : Math.max(0, n) };
+      }
+      return { ...clampRect({ x: r.x, y: r.y, w: r.w, h: r.h }), [key]: Number.isFinite(n) ? n : r[key], start: r.start, end: r.end };
+    }));
   }
   function pctPos(e: React.PointerEvent) {
     const el = boxRef.current; if (!el) return null;
@@ -93,10 +99,15 @@ export default function CreateClient() {
     setError(null); setInfo(null);
     const config: any = { duration: Number(duration), aspect, quantity: Number(quantity), mode, prompt, style, subtitle: true };
     if (removeWm) {
-      const regions = wmRects.map(r => ({ x: Number(r.x), y: Number(r.y), w: Number(r.w), h: Number(r.h), blur: 0 }));
-      config.removeWatermarks = regions;
-      config.removeWatermark = regions[0];
-      config.watermarkMethod = wmMethod;
+      if (wmMethod === "auto" || wmMethod === "autodelogo") {
+        config.watermarkMethod = wmMethod;
+        if (wmMethod === "auto") config.watermarkAuto = true;
+      } else {
+        const regions = wmRects.map(r => ({ x: Number(r.x), y: Number(r.y), w: Number(r.w), h: Number(r.h), blur: 0, ...(r.start != null ? { start: Number(r.start) } : {}), ...(r.end != null ? { end: Number(r.end) } : {}) }));
+        config.removeWatermarks = regions;
+        config.removeWatermark = regions[0];
+        config.watermarkMethod = wmMethod;
+      }
     }
     if (audioMode !== "original") config.audioTrack = { mode: audioMode, audioAssetId, musicVolume: Number(musicVolume), originalVolume: Number(originalVolume) };
 
@@ -189,13 +200,24 @@ export default function CreateClient() {
             <>
               <div className="space-y-1">
                 <label className="text-xs text-zinc-400">Metode hapus watermark</label>
-                <Select value={wmMethod} onChange={e => setWmMethod(e.target.value as "delogo" | "lama")}>
-                  <option value="lama">AI LaMa — bersih tanpa blur (render jauh lebih lama)</option>
-                  <option value="delogo">Delogo + Median — cepat, blur tipis masih mungkin</option>
+                <Select value={wmMethod} onChange={e => setWmMethod(e.target.value as "delogo" | "lama" | "auto" | "clean" | "autodelogo")}>
+                  <option value="autodelogo">Auto-Delogo — kotak terdeteksi otomatis, tanpa blur (disarankan)</option>
+                  <option value="auto">Auto-detect banner — cepat &amp; ringan (blur tipis)</option>
+                  <option value="clean">Blur Bersih — pilih posisi + waktu manual</option>
+                  <option value="delogo">Delogo + Median — kotak manual, tanpa blur</option>
+                  <option value="lama">AI LaMa — tanpa blur (render jauh lebih lama)</option>
                 </Select>
-                <div className="text-xs text-zinc-500">Geser kotak seleksi agar pas di atas watermark.</div>
+                <div className="text-xs text-zinc-500">
+                  {wmMethod === "autodelogo"
+                    ? "Sistem mencari bagian gambar yang diam di semua frame (logo statis), mengukur kotaknya otomatis, lalu menghapusnya dengan delogo — tanpa blur, tanpa crop, tanpa menggeser kotak."
+                    : wmMethod === "auto"
+                      ? "Sistem memindai pita atas tiap klip dan mengaburkan teks hanya saat ia muncul — tanpa kotak manual, tanpa model tambahan."
+                      : wmMethod === "clean"
+                      ? "Geser kotak ke posisi watermark. Sistem mencari teks di dalam kotak itu dan mengaburkannya hanya saat ia muncul — hasilnya bersih tanpa coretan delogo."
+                      : "Geser kotak seleksi agar pas di atas watermark."}
+                </div>
               </div>
-              {sourceMode === "upload" && videoUrl ? (
+              {sourceMode === "upload" && videoUrl && wmMethod !== "auto" && wmMethod !== "autodelogo" ? (
                 <div className="space-y-2">
                   <label className="text-xs text-zinc-400">Pratinjau &amp; Atur Area Watermark</label>
                   <div
@@ -244,6 +266,11 @@ export default function CreateClient() {
                       <div className="space-y-1"><label className="text-[11px] text-zinc-500">Lebar (%)</label><Input type="number" value={Math.round(r.w)} onChange={e=>updateField(i, "w", e.target.value)} /></div>
                       <div className="space-y-1"><label className="text-[11px] text-zinc-500">Tinggi (%)</label><Input type="number" value={Math.round(r.h)} onChange={e=>updateField(i, "h", e.target.value)} /></div>
                     </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1"><label className="text-[11px] text-zinc-500">Mulai (detik, kosong = awal)</label><Input type="number" min={0} step={0.5} placeholder="0" value={r.start ?? ""} onChange={e=>updateField(i, "start", e.target.value)} /></div>
+                      <div className="space-y-1"><label className="text-[11px] text-zinc-500">Selesai (detik, kosong = akhir)</label><Input type="number" min={0} step={0.5} placeholder="akhir" value={r.end ?? ""} onChange={e=>updateField(i, "end", e.target.value)} /></div>
+                    </div>
+                    {wmMethod === "clean" && <div className="text-[11px] text-zinc-500">Area ini dipakai hanya pada rentang waktu tersebut. Kosongkan keduanya untuk memakainya di seluruh video. Putar pratinjau untuk melihat posisi watermark di menit berbeda.</div>}
                   </div>
                 ))}
                 <button type="button" onClick={()=>setWmRects(rs=>rs.length<8 ? [...rs, { x: 5, y: 5, w: 15, h: 8 }] : rs)} disabled={wmRects.length>=8} className="w-full h-9 rounded-xl border border-dashed border-violet-400/30 bg-violet-500/[0.04] hover:bg-violet-500/[0.1] text-xs text-violet-200 disabled:opacity-40">+ Tambah Area Delogo ({wmRects.length}/8)</button>

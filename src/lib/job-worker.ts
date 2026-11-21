@@ -11,6 +11,8 @@ import { buildMontagePlan, renderMontage } from "./montage";
 import { downloadYouTubeVideo, isYouTubeUrl } from "./youtube";
 import { renderBeatSync } from "./beat/beat-render";
 import { getBrandKit, loudnormFilter } from "./brand";
+import { detectWatermark } from "./watermark-detect";
+import { detectStaticLogo } from "./logo-detect";
 
 async function getSetting(key: string, envKey?: string) {
   const row = await prisma.setting.findUnique({ where: { key } }).catch(() => null);
@@ -497,8 +499,11 @@ async function processJob(job: any) {
     : (config?.removeWatermark ? [config.removeWatermark] : []);
   const wmRegions = rawWm
     .filter((r: any) => r && Number.isFinite(Number(r.x)))
-    .map((r: any) => ({ x: Number(r.x), y: Number(r.y), w: Number(r.w), h: Number(r.h), blur: Number(r.blur) || 0 }));
+    .map((r: any) => ({ x: Number(r.x), y: Number(r.y), w: Number(r.w), h: Number(r.h), blur: Number(r.blur) || 0,
+      ...(Number.isFinite(Number(r.start)) ? { start: Number(r.start) } : {}),
+      ...(Number.isFinite(Number(r.end)) ? { end: Number(r.end) } : {}) }));
   const useLama = config?.watermarkMethod === "lama" && wmRegions.length > 0;
+  const useCleanManual = config?.watermarkMethod === "clean" && wmRegions.length > 0;
   let done = 0;
   for (const c of clips) {
     const safe = c.title.replace(/[^a-z0-9-_ ]+/gi, "").trim().replace(/\s+/g, "-").slice(0, 40) || "clip";
@@ -530,10 +535,50 @@ async function processJob(job: any) {
           console.warn("[LaMa] error, fallback delogo:", e?.message);
         }
       }
+      // "autodelogo": find the static logo by temporal variance in THIS clip,
+      // then delogo that exact box — no blur, no crop.
+      let autoDelogos: any[] | null = null;
+      // "Auto": find the banner in the top strip of THIS clip (~30 raw frames).
+      // "clean": use the user's box as the search region; if text is found, blur
+      // only those moments, otherwise blur the box for the whole clip.
+      // Both run inside the same render pass — no intermediate file.
+      let cleanBands: any[] | null = null;
+      const clipDur = Math.max(0.1, c.endTime - c.startTime);
+      if (config?.watermarkMethod === "autodelogo") {
+        const box = await detectStaticLogo(project.sourcePath, c.startTime, clipDur);
+        if (box) autoDelogos = [{ x: box.x, y: box.y, w: box.w, h: box.h }];
+      }
+      if (config?.watermarkAuto && !wmRegions.length) {
+        const det = await detectWatermark(project.sourcePath, c.startTime, clipDur);
+        if (det.found && det.band && det.ranges.length) {
+          cleanBands = det.ranges.map(r => ({ ...(det.band as any), start: r.start, end: r.end, strength: 20 }));
+        }
+      } else if (useCleanManual) {
+        cleanBands = [];
+        for (const r of wmRegions) {
+          // Per-area time window: a watermark that moves position can be
+          // marked as several areas, each active only during its own span.
+          const absStart = Number.isFinite(Number(r.start)) ? Number(r.start) : c.startTime;
+          const absEnd = Number.isFinite(Number(r.end)) ? Number(r.end) : c.endTime;
+          const relStart = Math.max(0, absStart - c.startTime);
+          const relEnd = Math.min(clipDur, absEnd - c.startTime);
+          if (relEnd - relStart < 0.2) continue;
+          const det = await detectWatermark(project.sourcePath, c.startTime + relStart, relEnd - relStart, { region: { x: r.x, y: r.y, w: r.w, h: r.h } });
+          const ranges = det.found && det.ranges.length
+            ? det.ranges.map(rg => ({ start: rg.start + relStart, end: rg.end + relStart }))
+            : [{ start: relStart, end: relEnd }];
+          for (const rg of ranges) {
+            const s = Math.max(0, rg.start), e = Math.min(clipDur, rg.end);
+            if (e - s >= 0.1) cleanBands.push({ x: r.x, y: r.y, w: r.w, h: r.h, start: s, end: e, strength: 20 });
+          }
+        }
+      }
       await renderClip({
         input: renderInput, output: outPath, start: renderStart, end: renderEnd,
         aspect: (config.aspect as any) || "9:16",
-        ...(!useLama && wmRegions.length ? { delogos: wmRegions } : {}),
+        ...(!useLama && !useCleanManual && !autoDelogos?.length && wmRegions.length ? { delogos: wmRegions } : {}),
+        ...(autoDelogos?.length ? { delogos: autoDelogos } : {}),
+        ...(cleanBands?.length ? { cleanBands } : {}),
       });
       // Optional: keep but clean the source audio, or swap/duck it with a licensed music track.
       if (config?.audioTrack?.mode === "reprocess") {

@@ -27,6 +27,10 @@
 ## Fitur Utama
 
 - **AI Clip Studio** — upload video, analisis highlight (AI/heuristik), render clip MP4.
+  - **Auto-detect watermark (ringan)** — opsi "Auto-detect" pada pengaturan lanjutan: memindai ~30 frame di pita atas tiap klip dengan FFmpeg + Node (tanpa model/Python), lalu mengaburkan banner teks bergulir **hanya pada rentang waktu ia muncul**, dalam satu pass render yang sama. Tidak ada file antara dan tidak ada encode kedua.
+  - **Blur Bersih (posisi manual)** — pilih metode "Blur Bersih", geser kotak ke posisi watermark. Deteksi waktu dijalankan **di dalam kotak itu**, lalu area tersebut di-blur hanya saat teks muncul (fallback: blur sepanjang klip jika teks tidak terdeteksi). Hasilnya sama bersihnya dengan Auto-detect, tanpa coretan khas delogo, dan tetap ringan.
+  - **Watermark berpindah posisi** — tiap area punya kolom **Mulai/Selesai (detik)**. Tandai beberapa area dengan posisi dan rentang waktu berbeda; area hanya diproses di rentangnya itu (klip yang terpotong di tengah rentang otomatis dihitung irisannya).
+  - **Auto-Delogo (tanpa blur)** — metode baru yang mencari logo statis dengan membandingkan beberapa frame (bagian yang tidak bergerak = logo), menghitung kotaknya otomatis, lalu menghapusnya dengan delogo. Tanpa blur, tanpa crop, tanpa kotak manual, dan tidak mengubah pengaturan brand kit.
 - **AI Montage Maker** — pilih/upload beberapa clip + musik, atur urutan/trim, preset (cinematic/AMV/hype/emotional/clean/story), aspect/FPS/audio mode, generate plan (auto/custom), render montage via worker (FFmpeg xfade/concat/audio mix).
 - **AI Prompt Editor** — tulis instruksi editing & template, terjemahkan ke konfigurasi/preset montage.
 - **Tambah Suara ke Video** — mix/replace audio, Audio Library, Extract Audio, dan **Auto Beat** (analisis beat/BPM/marker, sync plan, render sinkron musik via FFmpeg).

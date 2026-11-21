@@ -150,7 +150,8 @@ def main():
     t0 = time.time()
     try:
         while True:
-            if cap.get(cv2.CAP_PROP_POS_MSEC) >= end:
+            # POS_MSEC is milliseconds; end is in seconds.
+            if cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0 >= end:
                 break
             ok, frame = cap.read()
             if not ok:

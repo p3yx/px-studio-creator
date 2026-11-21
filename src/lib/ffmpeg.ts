@@ -102,6 +102,9 @@ export type RenderOptions = {
   // Watermark REMOVAL (delogo): regions in percent of source; blur = optional thin blur after delogo
   delogo?: { x: number; y: number; w: number; h: number; blur?: number } | null;
   delogos?: Array<{ x: number; y: number; w: number; h: number; blur?: number }> | null;
+  // Auto-detected text banner: percent geometry in SOURCE pixels, start/end in
+  // seconds relative to this clip. Blur is enabled only inside those ranges.
+  cleanBands?: Array<{ x: number; y: number; w: number; h: number; start: number; end: number; strength?: number }> | null;
   loudnessNormalize?: boolean;
   loudnessFilter?: string | null;
 };
@@ -173,6 +176,39 @@ export async function renderClip(opts: RenderOptions) {
         });
       }
     } catch { /* delogo optional */ }
+  }
+
+  // Auto-detected banner: blur a thin top strip only during the ranges where
+  // the detector actually saw text. Single encode, no intermediate file.
+  const cleanBands = (opts.cleanBands || []).filter(b => b && Number.isFinite(Number(b.y)));
+  if (cleanBands.length) {
+    try {
+      const info = await probeVideo(opts.input).catch(() => ({ width: null, height: null } as any));
+      const iw = Math.max(2, Number(info?.width || 1920));
+      const ih = Math.max(2, Number(info?.height || 1080));
+      const even = (n: number) => { const r = Math.round(n); return Math.max(2, r - (r % 2)); };
+      cleanBands.slice(0, 8).forEach((band, idx) => {
+        const bx = even(Math.min(iw - 8, (iw * clamp(band.x, 0, 99)) / 100));
+        const by = even(Math.min(ih - 8, (ih * clamp(band.y, 0, 99)) / 100));
+        const bw = even(Math.min(iw - 2 - bx, (iw * clamp(band.w, 1, 100)) / 100));
+        const bh = even(Math.min(ih - 2 - by, (ih * clamp(band.h, 1, 100)) / 100));
+        const strength = Math.max(2, Math.min(40, Math.round(Number(band.strength) || 20)));
+        // Chroma radius must stay < 12 on 8-bit; mirror the proven ffmpeg-skill
+        // recipe (20 luma passes) so no ghost of the text survives.
+        const chroma = Math.max(2, Math.min(10, Math.floor(strength / 2)));
+        const ranges = (Array.isArray((band as any).ranges) ? (band as any).ranges : [{ start: band.start, end: band.end }])
+          .filter((r: any) => Number.isFinite(Number(r.start)) && Number.isFinite(Number(r.end)) && Number(r.end) > Number(r.start))
+          .map((r: any) => `between(t\\,${Number(r.start).toFixed(3)}\\,${Number(r.end).toFixed(3)})`);
+        if (!ranges.length || bw < 6 || bh < 6) return;
+        // Append as a comma-chain (same shape as the delogo chain above) so
+        // the overlay output flows directly into the next filter. A labelled
+        // output here would break the [0:v]...[vout] graph and silently drop
+        // the brand-kit watermark overlay on the fallback path.
+        preFilter += `split=2[cb${idx}base][cb${idx}src];` +
+          `[cb${idx}src]crop=${bw}:${bh}:${bx}:${by},boxblur=${strength}:20:${chroma}:20[cb${idx}blur];` +
+          `[cb${idx}base][cb${idx}blur]overlay=${bx}:${by}:enable='${ranges.join("+")}',`;
+      });
+    } catch { /* auto clean optional */ }
   }
 
   const subPart = opts.subtitlePath
